@@ -30,7 +30,7 @@ namespace WDE.MySqlDatabaseCommon.Database
             if (string.IsNullOrEmpty(query) || !IsConnected)
                 return;
 
-            databaseLogger.Log(query, null, TraceLevel.Info);
+            databaseLogger.Log(query, null, TraceLevel.Info, QueryType.WriteQuery);
             
             using var writeLock = await DatabaseLock.WriteLock();
             
@@ -38,7 +38,7 @@ namespace WDE.MySqlDatabaseCommon.Database
             MySqlTransaction transaction;
             try
             {
-                conn.Open();
+                await conn.OpenAsync();
                 transaction = await conn.BeginTransactionAsync();
             }
             catch (Exception e)
@@ -51,6 +51,12 @@ namespace WDE.MySqlDatabaseCommon.Database
                 MySqlCommand cmd = new(query, conn, transaction);
                 await cmd.ExecuteNonQueryAsync();
                 await transaction.CommitAsync();
+            }
+            catch (MySqlConnector.MySqlException e)
+            {
+                await transaction.RollbackAsync();
+                await conn.CloseAsync();
+                throw new IMySqlExecutor.QueryFailedDatabaseException(e.Message, e);
             }
             catch (Exception ex)
             {

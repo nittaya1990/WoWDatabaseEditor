@@ -3,6 +3,7 @@
         "name": "Script",
         "group_members": [
             "SMART_ACTION_META_WAIT",
+            "SMART_ACTION_META_AWAIT",
             "SMART_ACTION_META_COMMENT",
             "SMART_ACTION_META_BEGIN_ACTIONLIST",
             "SMART_ACTION_META_AFTER",
@@ -62,6 +63,7 @@
             "SMART_ACTION_MOVE_TO_POS",
             "SMART_ACTION_MOVE_TO_POS_TARGET_AC",
             "SMART_ACTION_JUMP_TO_POS",
+            "SMART_ACTION_JUMP_TO_POS_MASTER",
             "SMART_ACTION_RANDOM_MOVE",
             "SMART_ACTION_FLEE_FOR_ASSIST",
             "SMART_ACTION_WP_START",
@@ -147,6 +149,7 @@
             "SMART_ACTION_CREATE_TIMED_EVENT",
             "SMART_ACTION_TRIGGER_TIMED_EVENT",
             "SMART_ACTION_REMOVE_TIMED_EVENT",
+            "SMART_ACTION_META_REPEAT_CURRENT_ACTIONLIST",
             "SMART_ACTION_CALL_TIMED_ACTIONLIST",
             "SMART_ACTION_CALL_RANDOM_TIMED_ACTIONLIST",
             "SMART_ACTION_CALL_RANDOM_RANGE_TIMED_ACTIONLIST"
@@ -160,6 +163,7 @@
             "SMART_ACTION_SUMMON_CREATURE_TC_WRATH",
             "SMART_ACTION_SUMMON_GO",
             "SMART_ACTION_SUMMON_CREATURE_GROUP",
+            "SMART_ACTION_BECOME_PERSONAL_CLONE_FOR_PLAYER",
             "SMART_ACTION_CONE_SUMMON_AC",
             "SMART_ACTION_VORTEX_SUMMON_AC"
         ]
@@ -197,7 +201,8 @@
         "name": "Phase",
         "group_members": [
             "SMART_ACTION_SET_INGAME_PHASE_ID",
-            "SMART_ACTION_SET_INGAME_PHASE_GROUP"
+            "SMART_ACTION_SET_INGAME_PHASE_GROUP",
+            "SMART_ACTION_SET_INGAME_PHASE_MASK"
         ]
     },
     {
@@ -226,13 +231,15 @@
             "SMART_ACTION_NO_ENVIRONMENT_UPDATE_AC",
             "SMART_ACTION_RESPAWN_TARGET",
             "SMART_ACTION_ENABLE_TEMP_GOBJ",
-            "SMART_ACTION_SET_HOME_POS"
+            "SMART_ACTION_SET_HOME_POS",
+            "SMART_ACTION_COMBAT_STOP"
         ]
     },
     {
         "name": "Interact with other units",
         "group_members": [
             "SMART_ACTION_STORE_TARGET_LIST",
+            "SMART_ACTION_ADD_TO_STORED_TARGET_LIST",
             "SMART_ACTION_SET_DATA",
             "SMART_ACTION_SEND_TARGET_TO_TARGET",
             "SMART_ACTION_SET_COUNTER",
@@ -250,6 +257,7 @@
     {
         "name": "Gameobject",
         "group_members": [
+            "SMART_ACTION_ACTIVATE_GAMEOBJECT",
             "SMART_ACTION_ACTIVATE_GOBJECT",
             "SMART_ACTION_SET_GO_STATE_AC",
             "SMART_ACTION_ADD_GO_FLAG",
@@ -290,7 +298,8 @@
             "SMART_ACTION_NONE",
             "SMART_ACTION_PLAY_CINEMATIC",
             "SMART_ACTION_OVERRIDE_LIGHT",
-            "SMART_ACTION_OVERRIDE_WEATHER"
+            "SMART_ACTION_OVERRIDE_WEATHER",
+            "SMART_ACTION_TRIGGER_GAME_EVENT"
         ]
     },
     {

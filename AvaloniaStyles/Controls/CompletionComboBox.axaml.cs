@@ -13,11 +13,12 @@ using Avalonia.Controls.Templates;
 using Avalonia.Controls.Utils;
 using Avalonia.Data;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using AvaloniaStyles.Utils;
 using FuzzySharp;
+using WDE.Common.Utils;
 using WDE.MVVM.Utils;
 
 namespace AvaloniaStyles.Controls
@@ -40,13 +41,14 @@ namespace AvaloniaStyles.Controls
         public Func<object?, object?>? SelectedItemExtractor { get; set; }
         private ISelectionAdapter? adapter;
         public event EventHandler<EnterPressedArgs>? OnEnterPressed;
-        private Func<string, CancellationToken, Task<IEnumerable<object>>> asyncPopulator;
+        private Func<IEnumerable, string, CancellationToken, Task<IEnumerable>> asyncPopulator;
         private string searchText = string.Empty;
+        private string? watermark = null;
         private bool isDropDownOpen;
         private object? selectedItem;
-        private IEnumerable<object>? items;
+        private IEnumerable? items;
 
-        public Func<string, CancellationToken, Task<IEnumerable<object>>> AsyncPopulator
+        public Func<IEnumerable, string, CancellationToken, Task<IEnumerable>> AsyncPopulator
         {
             get => asyncPopulator;
             set => SetAndRaise(AsyncPopulatorProperty, ref asyncPopulator, value);
@@ -58,13 +60,19 @@ namespace AvaloniaStyles.Controls
             set => SetAndRaise(SearchTextProperty, ref searchText, value);
         }
         
+        public string? Watermark
+        {
+            get => watermark;
+            set => SetAndRaise(WatermarkProperty, ref watermark, value);
+        }
+
         public bool IsDropDownOpen
         {
             get => isDropDownOpen;
             set => SetAndRaise(IsDropDownOpenProperty, ref  isDropDownOpen, value);
         }
         
-        public IEnumerable<object>? Items
+        public IEnumerable? Items
         {
             get => items;
             set => SetAndRaise(ItemsProperty, ref items, value);
@@ -100,25 +108,39 @@ namespace AvaloniaStyles.Controls
             set => SetValue(IsLightDismissEnabledProperty, value);
         }
         
+        public bool SetSelectedItemToNullBeforeCommit
+        {
+            get => GetValue(SetSelectedItemToNullBeforeCommitProperty);
+            set => SetValue(SetSelectedItemToNullBeforeCommitProperty, value);
+        }
+
         public static readonly StyledProperty<IDataTemplate?> ButtonItemTemplateProperty =
             AvaloniaProperty.Register<CompletionComboBox, IDataTemplate?>(nameof(ButtonItemTemplate));
         
         public static readonly StyledProperty<IDataTemplate> ItemTemplateProperty =
             AvaloniaProperty.Register<CompletionComboBox, IDataTemplate>(nameof(ItemTemplate));
         
-        public static readonly DirectProperty<CompletionComboBox, IEnumerable<object>?> ItemsProperty = 
-            AvaloniaProperty.RegisterDirect<CompletionComboBox, IEnumerable<object>?>("Items", 
+        public static readonly DirectProperty<CompletionComboBox, IEnumerable?> ItemsProperty = 
+            AvaloniaProperty.RegisterDirect<CompletionComboBox, IEnumerable?>("Items", 
                 o => o.Items, 
                 (o, v) => o.Items = v);
-
+        
+        public static readonly DirectProperty<CompletionComboBox, string?> WatermarkProperty =
+            AvaloniaProperty.RegisterDirect<CompletionComboBox, string?>(
+                nameof(Watermark),
+                o => o.Watermark,
+                (o, v) => o.Watermark = v,
+                unsetValue: null);
+        
         public static readonly DirectProperty<CompletionComboBox, string> SearchTextProperty =
             AvaloniaProperty.RegisterDirect<CompletionComboBox, string>(
                 nameof(SearchText),
                 o => o.SearchText,
+                (o, v) => o.SearchText = v,
                 unsetValue: string.Empty);
         
-        public static readonly DirectProperty<CompletionComboBox, Func<string, CancellationToken, Task<IEnumerable<object>>>> AsyncPopulatorProperty =
-            AvaloniaProperty.RegisterDirect<CompletionComboBox, Func<string, CancellationToken, Task<IEnumerable<object>>>>(
+        public static readonly DirectProperty<CompletionComboBox, Func<IEnumerable,string, CancellationToken, Task<IEnumerable>>> AsyncPopulatorProperty =
+            AvaloniaProperty.RegisterDirect<CompletionComboBox, Func<IEnumerable,string, CancellationToken, Task<IEnumerable>>>(
                 nameof(AsyncPopulator),
                 o => o.AsyncPopulator,
                 (o, v) => o.AsyncPopulator = v);
@@ -135,6 +157,9 @@ namespace AvaloniaStyles.Controls
                 o => o.SelectedItem,
                 (o, v) => o.SelectedItem = v,
                 defaultBindingMode: BindingMode.TwoWay);
+        
+        public static readonly StyledProperty<bool> SetSelectedItemToNullBeforeCommitProperty =
+            AvaloniaProperty.Register<CompletionComboBox, bool>(nameof(SetSelectedItemToNullBeforeCommit));
 
         public static readonly StyledProperty<bool> IsLightDismissEnabledProperty =
             AvaloniaProperty.Register<CompletionComboBox, bool>(nameof (IsLightDismissEnabled), true);
@@ -147,7 +172,7 @@ namespace AvaloniaStyles.Controls
         public CompletionComboBox()
         {
             // Default async populator searches in Items (toString) using Fuzzy match or normal match depending on the collection size
-            asyncPopulator = async (s, token) =>
+            asyncPopulator = async (items, s, token) =>
             {
                 if (items is not IList o)
                     return Enumerable.Empty<object>();
@@ -159,15 +184,16 @@ namespace AvaloniaStyles.Controls
                 {
                     if (o.Count < 250)
                     {
-                        return Process.ExtractSorted(s, items.Select(item => item.ToString()), cutoff: 51)
-                            .Select(item => o[item.Index]!);   
+                        var result = Process.ExtractSorted(s, items.Cast<object>().Select(item => item.ToString()), cutoff: 51)
+                            .Select(item => o[item.Index]!);
+                        return result;
                     }
 
                     List<object> picked = new();
                     var search = s.ToLower();
                     foreach (var item in o)
                     {
-                        if (item.ToString()!.ToLowerInvariant().Contains(search))
+                        if (item.ToString()!.Contains(search, StringComparison.InvariantCultureIgnoreCase))
                             picked.Add(item);
 
                         if (token.IsCancellationRequested)
@@ -177,6 +203,56 @@ namespace AvaloniaStyles.Controls
                     return picked;
                 }, token);
             };
+            KeyBindings.Add(new KeyBinding()
+            {
+                Gesture = new KeyGesture(Key.C, KeyModifiers.Control),
+                Command = new DelegateCommand(Copy)
+            });
+            KeyBindings.Add(new KeyBinding()
+            {
+                Gesture = new KeyGesture(Key.C, KeyModifiers.Meta),
+                Command = new DelegateCommand(Copy)
+            });
+            KeyBindings.Add(new KeyBinding()
+            {
+                Gesture = new KeyGesture(Key.V, KeyModifiers.Control),
+                Command = new AsyncAutoCommand(Paste)
+            });
+            KeyBindings.Add(new KeyBinding()
+            {
+                Gesture = new KeyGesture(Key.V, KeyModifiers.Meta),
+                Command = new AsyncAutoCommand(Paste)
+            });
+        }
+
+        private void Copy()
+        {
+            if (SelectedItem != null)
+            {
+                if (watermark is not null)
+                    TopLevel.GetTopLevel(this)?.Clipboard?.SetTextAsync(watermark);
+            }
+        }
+
+        private async Task Paste()
+        {
+            var textTask = TopLevel.GetTopLevel(this)?.Clipboard?.GetTextAsync();
+            if (textTask == null)
+                return;
+            var text = await textTask;
+            
+            //IsDropDownOpen = true;
+            //await Task.Delay(1);
+            SearchText = text ?? "";
+            SearchTextBox.RaiseEvent(new KeyEventArgs()
+            {
+                //Device = null,
+                Handled = false,
+                Key = Key.Enter,
+                Route = RoutingStrategies.Tunnel,
+                RoutedEvent = KeyDownEvent,
+                Source = SearchTextBox
+            });
         }
 
         protected override void OnTextInput(TextInputEventArgs e)
@@ -186,15 +262,16 @@ namespace AvaloniaStyles.Controls
             if (!e.Handled && e.Text != "\n" && e.Text != "\r")
             {
                 IsDropDownOpen = true;
-                SearchTextBox.RaiseEvent(new TextInputEventArgs
+                DispatcherTimer.RunOnce(() =>
                 {
-                    Device = e.Device,
-                    Handled = false,
-                    Text = e.Text,
-                    Route = e.Route,
-                    RoutedEvent = e.RoutedEvent,
-                    Source = SearchTextBox
-                });
+                    TextInputEventArgs args = new TextInputEventArgs();
+                    args.Handled = false;
+                    args.Text = e.Text;
+                    args.Route = e.Route;
+                    args.RoutedEvent = e.RoutedEvent;
+                    args.Source = SearchTextBox;
+                    SearchTextBox.RaiseEvent(args);
+                }, TimeSpan.FromMilliseconds(1));
                 e.Handled = true;
             }
         }
@@ -212,28 +289,43 @@ namespace AvaloniaStyles.Controls
                     box.ButtonItemTemplate = args.NewValue as IDataTemplate;
                 }
             });
+            ItemsProperty.Changed.AddClassHandler<CompletionComboBox>((box, args) =>
+            {
+                if (box.IsDropDownOpen)
+                    box.TextUpdated(box.SearchText);
+            });
             IsDropDownOpenProperty.Changed.AddClassHandler<CompletionComboBox>((box, args) =>
             {
                 if (args.NewValue is true)
                 {
                     DispatcherTimer.RunOnce(() =>
                     {
-                        FocusManager.Instance.Focus(box.SearchTextBox, NavigationMethod.Pointer);
-                        box.SearchTextBox.SelectionEnd = box.SearchTextBox.SelectionStart = box.SearchTextBox.Text.Length;
-                    }, TimeSpan.FromMilliseconds(1));
-                    box.SearchTextBox.Text = "";
+                        if (box.SearchTextBox == null) // before template applied
+                            return;
+                        
+                        //box.SearchText = "";
+                        box.SearchTextBox.Focus(NavigationMethod.Pointer);
+                        box.SearchTextBox.SelectionEnd = box.SearchTextBox.SelectionStart = box.SearchText.Length;
+                    }, TimeSpan.FromMilliseconds(16));
+
                     box.TextUpdated("");
+                    
+                    if (box.SearchTextBox == null) // before template applied
+                        return;
+                    
+                    box.SearchText = "";
                 }
             });
         }
         
         protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
         {
-            SearchTextBox = e.NameScope.Find<TextBox>("PART_SearchTextBox");
-
-            ToggleButton = e.NameScope.Find<ToggleButton>("PART_Button");
+            SearchTextBox = e.NameScope.Find<TextBox>("PART_SearchTextBox")  ?? throw new NullReferenceException("Couldn't find PART_SearchTextBox");
+            SearchTextBox.AddHandler(KeyDownEvent, SearchTextBoxOnKeyDown, RoutingStrategies.Tunnel);
             
-            ListBox = e.NameScope.Find<ListBox>("PART_SelectingItemsControl");
+            ToggleButton = e.NameScope.Find<ToggleButton>("PART_Button")  ?? throw new NullReferenceException("Couldn't find PART_Button");
+            
+            ListBox = e.NameScope.Find<ListBox>("PART_SelectingItemsControl") ?? throw new NullReferenceException("Couldn't find PART_SelectingItemsControl");
             ListBox.PointerReleased += OnSelectorPointerReleased;
             if (ListBox != null)
             {
@@ -252,9 +344,27 @@ namespace AvaloniaStyles.Controls
             base.OnApplyTemplate(e);
         }
 
+        private void SearchTextBoxOnKeyDown(object? sender, KeyEventArgs e)
+        {
+            if (e.KeyModifiers == KeyModifiers.None)
+                return;
+            if (!string.IsNullOrWhiteSpace(SearchText))
+                return;
+            if (watermark == null)
+                return;
+            foreach (var binding in TopLevel.GetTopLevel(this)!.PlatformSettings!.HotkeyConfiguration!.Copy)
+            {
+                if (binding.Matches(e))
+                {
+                    TopLevel.GetTopLevel(this)?.Clipboard?.SetTextAsync(watermark);
+                    e.Handled = true;
+                }
+            }
+        }
+
         private void OnSelectorPointerReleased(object? sender, PointerReleasedEventArgs e)
         {
-            if (e.Source is IControl control && control.FindAncestorOfType<CheckBox>() != null)
+            if (e.Source is Control control && control.FindAncestorOfType<CheckBox>() != null)
                 return;
             
             Commit(adapter?.SelectedItem);
@@ -266,7 +376,7 @@ namespace AvaloniaStyles.Controls
             Dispatcher.UIThread.Post(() =>
             {
                 // Call the central updated text method as a user-initiated action
-                TextUpdated(textBox.Text);
+                TextUpdated(textBox.Text ?? "");
             });
         }
         
@@ -288,14 +398,14 @@ namespace AvaloniaStyles.Controls
             {
                 if (adapter != null)
                 {
-                    adapter.Items = null;
+                    adapter.ItemsSource = null;
                 }
 
                 adapter = value;
 
                 if (adapter != null)
                 {
-                    adapter.Items = view;
+                    adapter.ItemsSource = view;
                 }
             }
         }
@@ -320,6 +430,23 @@ namespace AvaloniaStyles.Controls
                             .Skip(1)
                             .Subscribe(_ => OnTextBoxTextChanged())
                             .Combine(
+                                textBox.AddDisposableHandler(TextInputEvent, (_, args) =>
+                                {
+                                    if (args.Text == " ")
+                                    {
+                                        if (SelectionAdapter.SelectedItem != null)
+                                        {
+                                            var container =
+                                                ListBox.ContainerFromIndex(ListBox.SelectedIndex);
+                                            if (container?.FindDescendantOfType<CheckBox>() is CheckBox cb)
+                                            {
+                                                cb.IsChecked = !cb.IsChecked;
+                                                args.Handled = true;
+                                            }
+                                        }
+                                    }
+                                }, RoutingStrategies.Tunnel))
+                            .Combine(
                                 textBox.AddDisposableHandler(KeyDownEvent, (_, args) =>
                                 {
                                     if (args.Handled)
@@ -327,7 +454,7 @@ namespace AvaloniaStyles.Controls
 
                                     if (args.Key == Key.Enter)
                                     {
-                                        var enterArgs = new EnterPressedArgs(textBox.Text,
+                                        var enterArgs = new EnterPressedArgs(textBox.Text ?? "",
                                             SelectionAdapter.SelectedItem);
                                         OnEnterPressed?.Invoke(this, enterArgs);
                                         if (!enterArgs.Handled)
@@ -337,34 +464,21 @@ namespace AvaloniaStyles.Controls
                                     }
                                     else if (args.Key == Key.Tab)
                                     {
-                                        SelectionAdapter.HandleKeyDown(new KeyEventArgs
+                                        var newArgs = new KeyEventArgs()
                                         {
-                                            Device = args.Device,
                                             Key = (args.KeyModifiers & KeyModifiers.Shift) != 0 ? Key.Up : Key.Down,
                                             Route = args.Route,
                                             RoutedEvent = args.RoutedEvent,
-                                            Source = args.Source
-                                        });
+                                            KeyModifiers = args.KeyModifiers,
+                                            Source = args.Source,
+                                        };
+                                        SelectionAdapter.HandleKeyDown(newArgs);
                                         args.Handled = true;
                                     }
                                     else if (args.Key == Key.Escape)
                                     {
                                         Close();
                                         args.Handled = true;
-                                    }
-                                    else if (args.Key == Key.Space)
-                                    {
-                                        if (SelectionAdapter.SelectedItem != null)
-                                        {
-                                            var container =
-                                                ListBox.ItemContainerGenerator
-                                                    .ContainerFromIndex(ListBox.SelectedIndex);
-                                            if (container?.FindDescendantOfType<CheckBox>() is CheckBox cb)
-                                            {
-                                                cb.IsChecked = !cb.IsChecked;
-                                                args.Handled = true;
-                                            }
-                                        }
                                     }
                                     else
                                     {
@@ -376,17 +490,19 @@ namespace AvaloniaStyles.Controls
                                 // don't ever let textbox lost focus
                                 if (IsDropDownOpen)
                                 {
-                                    Dispatcher.UIThread.Post(() => FocusManager.Instance.Focus(textBox));
+                                    Dispatcher.UIThread.Post(() => textBox.Focus());
                                 }
                             }));
                 }
             }
         }
-        
+
         private void Commit(object? item)
         {
             if (SelectedItemExtractor != null)
                 item = SelectedItemExtractor(item);
+            if (SetSelectedItemToNullBeforeCommit)
+                SelectedItem = null;
             SelectedItem = item;
             Close();
         }
@@ -394,7 +510,7 @@ namespace AvaloniaStyles.Controls
         private void Close()
         {
             IsDropDownOpen = false;
-            FocusManager.Instance.Focus(ToggleButton, NavigationMethod.Tab);
+            ToggleButton.Focus(NavigationMethod.Tab);
             Closed?.Invoke();
         }
         
@@ -438,8 +554,13 @@ namespace AvaloniaStyles.Controls
         {
             try
             {
-                IEnumerable<object> result = await asyncPopulator.Invoke(searchText, cancellationToken);
-                var resultList = result.ToList();
+                IEnumerable? result = await asyncPopulator.Invoke(items ?? Array.Empty<object>(), searchText, cancellationToken);
+                if (result == null)
+                {
+                    view.Clear();
+                    return;
+                }
+                var resultList = result is IList ? (IList)result : result.Cast<object>()?.ToList();
 
                 if (cancellationToken.IsCancellationRequested)
                     return;
@@ -448,7 +569,9 @@ namespace AvaloniaStyles.Controls
                 {
                     if (!cancellationToken.IsCancellationRequested)
                     {
-                        view.OverrideWith(resultList);
+                        view.Clear();
+                        if (resultList != null)
+                            view.InsertRange(0, resultList.Cast<object>());
                     }
                 });
             }

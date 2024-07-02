@@ -30,6 +30,7 @@ namespace WDE.Conditions.ViewModels
             IConditionsFactory conditionsFactory,
             IConditionDataManager conditionDataManager,
             IItemFromListProvider itemFromListProvider,
+            IParameterPickerService parameterPickerService,
             IHistoryManager historyManager,
             IEnumerable<ICondition>? conditions,
             int conditionSourceType)
@@ -64,14 +65,27 @@ namespace WDE.Conditions.ViewModels
 
             Accept = new DelegateCommand(() => CloseOk?.Invoke());
             Cancel = new DelegateCommand(() => CloseCancel?.Invoke());
-            PickCommand = new AsyncAutoCommand<ParameterValueHolder<long>>(async prh =>
+            PickCommand = new AsyncAutoCommand<IParameterValueHolder>(async prh =>
             {
-                if (!prh.HasItems) 
-                    return;
+                if (prh is ParameterValueHolder<long> longParam)
+                {
+                    if (!longParam.HasItems) 
+                        return;
 
-                var newItem = await itemFromListProvider.GetItemFromList(prh.Items, prh.Parameter is FlagParameter, prh.Value);
-                if (newItem.HasValue)
-                    prh.Value = newItem.Value;
+                    var (newItem, ok) = await parameterPickerService.PickParameter(longParam.Parameter, longParam.Value);
+                    if (ok)
+                        longParam.Value = newItem;   
+                }
+                
+                if (prh is ParameterValueHolder<string> stringParam)
+                {
+                    if (!stringParam.HasItems) 
+                        return;
+
+                    var (newItem, ok) = await parameterPickerService.PickParameter(stringParam.Parameter, stringParam.Value);
+                    if (ok)
+                        stringParam.Value = newItem ?? "";   
+                }
             });
             AddItemCommand = new DelegateCommand(() =>
             {
@@ -79,8 +93,13 @@ namespace WDE.Conditions.ViewModels
                 if (SelectedCondition != null)
                     index = Conditions.IndexOf(SelectedCondition) + 1;
                 index = Math.Clamp(index, 0, Conditions.Count);
+
+                var item = conditionsFactory.Create(conditionSourceType, 0) ??
+                           conditionsFactory.CreateOr(conditionSourceType);
                 
-                Conditions.Insert(index, conditionsFactory.Create(conditionSourceType, 0) ?? conditionsFactory.CreateOr(conditionSourceType));
+                if (item == null)
+                    throw new Exception();
+                Conditions.Insert(index, item);
             });
             RemoveItemCommand = new DelegateCommand(() =>
             {
@@ -184,7 +203,7 @@ namespace WDE.Conditions.ViewModels
         
         public int DesiredWidth => 800;
         public int DesiredHeight => 600;
-        public string Title => "Conditions edit";
+        public string Title { get; set; } = "Conditions edit";
         public bool Resizeable => true;
 
         public event Action? CloseCancel;

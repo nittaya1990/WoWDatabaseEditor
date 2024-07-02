@@ -1,5 +1,7 @@
-﻿using WDE.Common.Database;
+﻿using System;
+using WDE.Common.Database;
 using WDE.Common.DBC;
+using WDE.Common.Parameters;
 using WDE.Common.Solution;
 using WDE.SmartScriptEditor.Models;
 
@@ -7,44 +9,79 @@ namespace WDE.SmartScriptEditor.Providers
 {
     public class SmartScriptNameProviderBase<T> : ISolutionNameProvider<T> where T : ISmartScriptSolutionItem
     {
-        private readonly IDatabaseProvider database;
+        private readonly ICachedDatabaseProvider database;
         private readonly ISpellStore spellStore;
+        private readonly IDbcStore dbcStore;
+        private readonly IParameterFactory parameterFactory;
 
-        public SmartScriptNameProviderBase(IDatabaseProvider database, ISpellStore spellStore)
+        public SmartScriptNameProviderBase(ICachedDatabaseProvider database, 
+            ISpellStore spellStore, 
+            IDbcStore dbcStore,
+            IParameterFactory parameterFactory)
         {
             this.database = database;
             this.spellStore = spellStore;
+            this.dbcStore = dbcStore;
+            this.parameterFactory = parameterFactory;
         }
 
-        private string? TryGetName(int entryOrGuid, SmartScriptType type)
+        protected virtual string? TryGetName(uint? scriptEntry, int entryOrGuid, SmartScriptType type)
         {
             uint? entry = 0;
             switch (type)
             {
                 case SmartScriptType.Creature:
                     if (entryOrGuid < 0)
-                        entry = database.GetCreatureByGuid((uint)-entryOrGuid)?.Entry;
+                        entry = database.GetCachedCreatureByGuid(0, (uint)-entryOrGuid)?.Entry;
+                    else if (scriptEntry.HasValue)
+                        entry = scriptEntry.Value;
                     else
                         entry = (uint)entryOrGuid;
                     
                     if (entry.HasValue)
-                        return database.GetCreatureTemplate(entry.Value)?.Name;
+                        return database.GetCachedCreatureTemplate(entry.Value)?.Name;
                     break;
                 case SmartScriptType.GameObject:
                     if (entryOrGuid < 0)
-                        entry = database.GetGameObjectByGuid((uint)-entryOrGuid)?.Entry;
+                        entry = database.GetCachedGameObjectByGuid(0, (uint)-entryOrGuid)?.Entry;
+                    else if (scriptEntry.HasValue)
+                        entry = scriptEntry.Value;
                     else
                         entry = (uint)entryOrGuid;
                     
                     if (entry.HasValue)
-                        return database.GetGameObjectTemplate(entry.Value)?.Name;
+                        return database.GetCachedGameObjectTemplate(entry.Value)?.Name;
                     break;
                 case SmartScriptType.Quest:
-                    return database.GetQuestTemplate((uint)entryOrGuid)?.Name;
+                    return database.GetCachedQuestTemplate((uint)entryOrGuid)?.Name;
                 case SmartScriptType.Aura:
                 case SmartScriptType.Spell:
+                case SmartScriptType.StaticSpell:
                     if (spellStore.HasSpell((uint) entryOrGuid))
                         return spellStore.GetName((uint) entryOrGuid);
+                    break;
+                case SmartScriptType.Scene:
+                    entry = database.GetCachedSceneTemplate((uint)entryOrGuid)?.ScriptPackageId;
+
+                    if (entry.HasValue && dbcStore.SceneStore.ContainsKey((uint)entry))
+                        return dbcStore.SceneStore[(uint)entry];
+                    break;
+                case SmartScriptType.BattlePet:
+                    if (dbcStore.BattlePetSpeciesIdStore?.TryGetValue(entryOrGuid, out var creatureId) ?? false)
+                    {
+                        if (database.GetCachedCreatureTemplate((uint)creatureId) is { } battleCreature)
+                            return battleCreature.Name;
+                    }
+                    break;
+                case SmartScriptType.AreaTriggerEntityServerSide:
+                    var param = parameterFactory.Factory("ServersideAreatriggerParameter");
+                    if (param.Items?.TryGetValue(entryOrGuid, out var name) ?? false)
+                        return name.Name;
+                    break;
+                case SmartScriptType.Conversation:
+                    var conversation = parameterFactory.Factory("ConversationParameter");
+                    if (conversation.Items?.TryGetValue(entryOrGuid, out var conversationName) ?? false)
+                        return conversationName.Name;
                     break;
                 default:
                     return null;
@@ -55,15 +92,15 @@ namespace WDE.SmartScriptEditor.Providers
         
         public virtual string GetName(T item)
         {
-            var name = TryGetName(item.Entry, item.SmartType);
+            var name = TryGetName(item.Entry, item.EntryOrGuid, item.SmartType);
             if (!string.IsNullOrEmpty(name))
             {
-                if (item.Entry < 0 && (item.SmartType == SmartScriptType.Creature || item.SmartType == SmartScriptType.GameObject))
-                    return name + " with guid " + -item.Entry;
+                if (item.EntryOrGuid < 0 && (item.SmartType == SmartScriptType.Creature || item.SmartType == SmartScriptType.GameObject))
+                    return name + " with guid " + -item.EntryOrGuid;
                 return name;
             }
             
-            int entry = item.Entry;
+            int entry = item.EntryOrGuid;
 
             if (entry > 0)
             {
@@ -86,6 +123,30 @@ namespace WDE.SmartScriptEditor.Providers
                         return "Area trigger entity " + entry;
                     case SmartScriptType.AreaTriggerEntityServerSide:
                         return "Serverside area trigger entity " + entry;
+                    case SmartScriptType.Event:
+                        return "Event " + entry;
+                    case SmartScriptType.Gossip:
+                        return "Gossip " + entry;
+                    case SmartScriptType.Transport:
+                        return "Transport " + entry;
+                    case SmartScriptType.Instance:
+                        return "Instance " + entry;
+                    case SmartScriptType.Scene:
+                        return "Scene " + entry;
+                    case SmartScriptType.Cinematic:
+                        return "Cinematic " + entry;
+                    case SmartScriptType.PlayerChoice:
+                        return "Player choice " + entry;
+                    case SmartScriptType.Template:
+                        return "Template " + entry;
+                    case SmartScriptType.StaticSpell:
+                        return "Static spell " + entry;
+                    case SmartScriptType.BattlePet:
+                        return "Battle pet " + entry;
+                    case SmartScriptType.Conversation:
+                        return "Conversation " + entry;
+                    default:
+                        throw new ArgumentOutOfRangeException();
                 }
             }
 

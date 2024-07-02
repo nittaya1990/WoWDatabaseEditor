@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using WDE.Common.Services;
 using WDE.Common.Types;
 using WDE.DatabaseEditors.Data.Structs;
 using WDE.DatabaseEditors.Models;
@@ -14,7 +15,8 @@ namespace WDE.DatabaseEditors.CustomCommands
         ImageUri Icon { get; }
         string Name { get; }
         string CommandId { get; }
-        Task Process(DatabaseCommandDefinitionJson definition, IDatabaseTableData tableData);
+        Task Process(DatabaseCommandDefinitionJson definition, IDatabaseTableData tableData, DatabaseEntity? entityParameter, ITableContext tableContext);
+        bool CanExecute(DatabaseCommandDefinitionJson definition, DatabaseEntity entity, ITableContext context) => true;
     }
     
     [NonUniqueProvider]
@@ -23,6 +25,6 @@ namespace WDE.DatabaseEditors.CustomCommands
         ImageUri Icon { get; }
         string Name { get; }
         string CommandId { get; }
-        Task Process(DatabaseCommandDefinitionJson definition, IDatabaseTableData tableData, ICollection<uint> keys, IAddRowKey addRow);
+        Task Process(DatabaseCommandDefinitionJson definition, IDatabaseTableData tableData, ICollection<DatabaseKey> keys, ITableContext tableContext);
     }
 }

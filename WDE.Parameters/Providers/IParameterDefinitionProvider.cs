@@ -2,7 +2,11 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Newtonsoft.Json;
+using WDE.Common.CoreVersion;
+using WDE.Common.Modules;
+using WDE.Common.Services;
 using WDE.Common.Services.MessageBox;
 using WDE.Common.Utils;
 using WDE.Module.Attributes;
@@ -12,34 +16,64 @@ namespace WDE.Parameters.Providers
 {
     [AutoRegister]
     [SingleInstance]
-    public class ParameterDefinitionProvider : IParameterDefinitionProvider
+    public class ParameterDefinitionProvider : IParameterDefinitionProvider, IGlobalAsyncInitializer
     {
-        public IReadOnlyDictionary<string, ParameterSpecModel> Parameters { get; }
+        private readonly IRuntimeDataService dataService;
+        private readonly ICurrentCoreVersion currentCoreVersion;
+        private readonly IMessageBoxService messageBoxService;
 
-        public ParameterDefinitionProvider(IMessageBoxService service)
+        public IReadOnlyDictionary<string, ParameterSpecModel> Parameters { get; private set; } =
+            new Dictionary<string, ParameterSpecModel>();
+
+        public ParameterDefinitionProvider(IRuntimeDataService dataService,
+            ICurrentCoreVersion currentCoreVersion,
+            IMessageBoxService messageBoxService)
+        {
+            this.dataService = dataService;
+            this.currentCoreVersion = currentCoreVersion;
+            this.messageBoxService = messageBoxService;
+        }
+
+        private int GetOrder(string fileName)
+        {
+            switch (Path.GetFileNameWithoutExtension(fileName))
+            {
+                case "parameters":
+                    return 0;
+                case "spell_parameters":
+                    return 1;
+                case "spell_parameters2":
+                    return 2;
+            }
+
+            return 3;
+        }
+
+        public async Task Initialize()
         {
             var allParameters = new Dictionary<string, ParameterSpecModel>();
 
-            var files = Directory
-                .GetFiles("Parameters/", "*.json", SearchOption.AllDirectories)
-                .OrderBy(t => t, Compare.CreateComparer<string>((a, b) =>
-                {
-                    if (Path.GetFileName(a) == "parameters.json")
-                        return -1;
-                    return 1;
-                })).ToList();
-            
+            List<string> files = (await dataService.GetAllFiles("Parameters/", "*.json"))
+                .OrderBy(GetOrder).ToList();
+
+            var currentCore = currentCoreVersion.Current;
+
             foreach (var source in files)
             {
-                string data = File.ReadAllText(source);
+                string data = await dataService.ReadAllText(source);
                 try {
                     var parameters = JsonConvert.DeserializeObject<Dictionary<string, ParameterSpecModel>>(data);
-                    foreach (var keyPair in parameters)
-                        allParameters[keyPair.Key] = keyPair.Value;
-                } 
+                    foreach (var keyPair in parameters!) // try-catch is null
+                    {
+                        if (keyPair.Value.Tags == null || keyPair.Value.Tags.Contains(currentCore.Tag))
+                        {
+                            allParameters[keyPair.Key] = keyPair.Value;
+                        }
+                    }
+                }
                 catch (Exception e)
                 {
-                    service.ShowDialog(new MessageBoxFactory<bool>()
+                    messageBoxService.ShowDialog(new MessageBoxFactory<bool>()
                         .SetTitle("Error while loading parameters")
                         .SetMainInstruction("Parameters file is corrupted")
                         .SetContent("File " + source +

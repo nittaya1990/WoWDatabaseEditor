@@ -1,17 +1,15 @@
-using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using WDE.Common.Database;
 using WDE.Common.Services.MessageBox;
 using WDE.Module.Attributes;
-using WDE.Parameters.Models;
 using WDE.SmartScriptEditor;
 using WDE.SmartScriptEditor.Data;
 using WDE.SmartScriptEditor.Editor;
 using WDE.SmartScriptEditor.Models;
+using WDE.SmartScriptEditor.Utils;
 
 namespace WDE.TrinitySmartScriptEditor.Exporter
 {
@@ -23,16 +21,22 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
         private readonly ISmartDataManager smartDataManager;
         private readonly IMessageBoxService messageBoxService;
         private readonly IDatabaseProvider databaseProvider;
+        private readonly IEditorFeatures editorFeatures;
+        private readonly ISimpleConditionsImporter simpleConditionsImporter;
 
         public TrinityCoreSmartScriptImporter(ISmartFactory smartFactory,
             ISmartDataManager smartDataManager,
             IMessageBoxService messageBoxService,
-            IDatabaseProvider databaseProvider)
+            IDatabaseProvider databaseProvider,
+            IEditorFeatures editorFeatures,
+            ISimpleConditionsImporter simpleConditionsImporter)
         {
             this.smartFactory = smartFactory;
             this.smartDataManager = smartDataManager;
             this.messageBoxService = messageBoxService;
             this.databaseProvider = databaseProvider;
+            this.editorFeatures = editorFeatures;
+            this.simpleConditionsImporter = simpleConditionsImporter;
         }
         
         private bool TryParseGlobalVariable(SmartScript script, ISmartScriptLine line)
@@ -41,37 +45,32 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                 return false;
             if (line.ActionType != SmartConstants.ActionNone)
                 return false;
-            if (!line.Comment.StartsWith("#define"))
-                return false;
-            
-            Match match = Regex.Match(line.Comment, @"#define ([A-Za-z]+) (\d+) (.*?)(?: -- (.*?))?$", RegexOptions.IgnoreCase);
-            if (!match.Success)
-                return false;
-
-            if (!Enum.TryParse(typeof(GlobalVariableType), match.Groups[1].Value, out var enm) || enm == null)
-                return false;
-
-            if (!long.TryParse(match.Groups[2].Value, out var key))
-                return false;
-
-            var variable = new GlobalVariable()
+            if (line.Comment.TryParseGlobalVariable(out var variable))
             {
-                Name = match.Groups[3].Value,
-                Comment = match.Groups.Count == 5 ? match.Groups[4].Value : null,
-                Key = key,
-                VariableType = (GlobalVariableType)enm
-            };
-            script.GlobalVariables.Add(variable);
-            return true;
+                script.GlobalVariables.Add(variable);
+                return true;
+            }
+
+            return false;
         }
 
-        public async Task Import(SmartScript script, bool doNotTouchIfPossible, IList<ISmartScriptLine> lines, IList<IConditionLine> conditions, IList<IConditionLine> targetConditions)
+        public Dictionary<int, List<SmartCondition>> ImportConditions(SmartScriptBase script, IReadOnlyList<IConditionLine> lines)
+        {
+            return simpleConditionsImporter.ImportConditions(script, lines);
+        }
+
+        public List<SmartCondition> ImportConditions(SmartScriptBase script, IReadOnlyList<ICondition> lines)
+        {
+            return simpleConditionsImporter.ImportConditions(script, lines);
+        }
+
+        public async Task Import(SmartScript script, bool doNotTouchIfPossible, IReadOnlyList<ISmartScriptLine> lines, IReadOnlyList<IConditionLine> conditions, IReadOnlyList<IConditionLine>? targetConditions)
         {
             int? entry = null;
             SmartScriptType? source = null;
             bool? shouldMergeUserLastAnswer = doNotTouchIfPossible ? false : null;
 
-            var conds = script.ParseConditions(conditions);
+            var conds = ImportConditions(script, conditions);
             SortedDictionary<long, SmartEvent> startPathToActionParent = new();
             SortedDictionary<long, SmartEvent> triggerIdToActionParent = new();
             SortedDictionary<long, SmartEvent> triggerIdToEvent = new();
@@ -98,6 +97,7 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
             }
 
             SmartEvent? lastEvent = null;
+            List<int> onTimedEventToRemove = new(); // timed event ids that we want to remove, because they belong to REPEAT meta action
             foreach (var line in lines)
             {
                 if (TryParseGlobalVariable(script, line))
@@ -193,7 +193,7 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
 
                     if (mergeList)
                     {
-                        var timedScript = databaseProvider.GetScriptFor((int)action.GetParameter(0).Value,
+                        var timedScript = await databaseProvider.GetScriptForAsync(0, (int)action.GetParameter(0).Value,
                             SmartScriptType.TimedActionList);
                         var beginInlineAction = smartFactory.ActionFactory(SmartConstants.ActionBeginInlineActionList,
                             smartFactory.SourceFactory(SmartConstants.SourceSelf),
@@ -203,7 +203,7 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                         var pseudoScript = new SmartScript(
                             new SmartScriptSolutionItem((int)action.GetParameter(0).Value,
                                 SmartScriptType.TimedActionList),
-                            smartFactory, smartDataManager, messageBoxService);
+                            smartFactory, smartDataManager, messageBoxService, editorFeatures, this);
                         await Import(pseudoScript, doNotTouchIfPossible, timedScript.ToList(), new List<IConditionLine>(),
                             new List<IConditionLine>());
                         currentEvent.AddAction(beginInlineAction);
@@ -220,7 +220,16 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                             }
 
                             foreach (var a in e.Actions)
-                                currentEvent.AddAction(a);
+                            {
+                                if (a.Comment == SmartConstants.CommentInlineRepeatActionList)
+                                {
+                                    onTimedEventToRemove.Add((int)a.GetParameter(0).Value);
+                                    var actualAction = smartFactory.ActionFactory(SmartConstants.ActionRepeatTimedActionList, null, null);
+                                    currentEvent.AddAction(actualAction);
+                                }
+                                else
+                                    currentEvent.AddAction(a);
+                            }
                         }
                     }
                     else
@@ -229,6 +238,16 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                             triggerIdToActionParent[action.GetParameter(0).Value] = currentEvent;
                         currentEvent.AddAction(action);
                     }
+                }
+
+                if (source == SmartScriptType.TimedActionList &&
+                    (line.EventFlags & SmartConstants.EventFlagActionListWaits) ==
+                    SmartConstants.EventFlagActionListWaits)
+                {
+                    var awaitAction = smartFactory.ActionFactory(SmartConstants.ActionAwaitTimedList,
+                        smartFactory.SourceFactory(SmartConstants.SourceNone),
+                        smartFactory.TargetFactory(SmartConstants.TargetNone));
+                    currentEvent.AddAction(awaitAction);
                 }
 
                 if (line.Link != 0 && !doubleLinks.Contains(line.Link))
@@ -290,16 +309,16 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                 if (e.Actions.Count > 0)
                 {
                     var a = e.Actions[^1];
-                    if (a.Id == SmartConstants.ActionStartWaypointsPath)
-                        startPathToActionParent[a.GetParameter(1).Value] = e;
+                    if (a.Id is SmartConstants.ActionStartWaypointsPath)
+                        startPathToActionParent[a.GetParameter(1).Value] = e; // path id
+                    else if (a.Id is SmartConstants.ActionMovePoint)
+                        startPathToActionParent[a.GetParameter(0).Value] = e; // point id
                 }
             }
             
             for (var index = script.Events.Count - 1; index >= 0; index--)
             {
                 var e = script.Events[index];
-                if (e.Id != SmartConstants.EventWaypointsEnded || e.GetParameter(0).Value != 0)
-                    continue;
                 
                 if (e.Actions.Count == 0 || e.Actions[0].Id != SmartConstants.ActionBeginInlineActionList)
                     continue;
@@ -307,12 +326,38 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                 if (!startPathToActionParent.TryGetValue(e.GetParameter(1).Value, out var startPathEvent))
                     continue;
                 
-                script.Events.Remove(e);
-                startPathEvent.AddAction(smartFactory.ActionFactory(SmartConstants.ActionAfterMovement, null, null));
-                for (int i = 1; i < e.Actions.Count; ++i)
-                    startPathEvent.AddAction(e.Actions[i]);
+                if ((e.Id == SmartConstants.EventWaypointsEnded && e.GetParameter(0).Value == 0) ||
+                    (e.Id == SmartConstants.EventMovementInform && 
+                     e.GetParameter(0).Value == SmartConstants.MovementTypePointMotionType &&
+                     e.GetParameter(1).Value != 0))
+                {
+                    script.Events.Remove(e);
+                    startPathEvent.AddAction(smartFactory.ActionFactory(SmartConstants.ActionAfterMovement, null, null));
+                    for (int i = 1; i < e.Actions.Count; ++i)
+                        startPathEvent.AddAction(e.Actions[i]);   
+                }
             }
 
+            if (onTimedEventToRemove.Count > 0)
+            {
+                for (var index = script.Events.Count - 1; index >= 0; index--)
+                {
+                    var e = script.Events[index];
+                    if (e.Id != SmartConstants.EventTriggerTimed)
+                        continue;
+                    
+                    if (e.Actions.Count != 1)
+                        continue;
+
+                    if (e.Actions[0].Id != SmartConstants.ActionCallTimedActionList)
+                        continue;
+
+                    if (!onTimedEventToRemove.Contains((int)e.GetParameter(0).Value))
+                        continue;
+                    
+                    script.Events.RemoveAt(index);
+                }
+            }
 
             if (doubleLinks.Count > 0)
             {

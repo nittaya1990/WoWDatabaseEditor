@@ -1,18 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net6.0</TargetFramework>
+        <TargetFramework>net8.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-<!--        <WarningsAsErrors>nullable</WarningsAsErrors>-->
+        <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+        <NoWarn>$(NoWarn),CS8618,CS8603,CS8629,CS8602,CS8604,CS0219,CS8600,CS0414</NoWarn>
+<!--        <WarningsAsErrors>$(WarningsAsErrors),nullable</WarningsAsErrors>-->
     </PropertyGroup>
     <Import Project="..\Avalonia.props" />
     <PropertyGroup>
         <OutputPath>..\bin\$(Configuration)\</OutputPath>
     </PropertyGroup>
-    <Import Project="..\Module.props" />    
-
+    <Import Project="..\Module.props" />
+    
+    <Import Project="..\Rendering\lib3d.props" />
+    
     <ItemGroup>
         <ProjectReference Include="..\WDE.WorldMap\WDE.WorldMap.csproj" />
         <ProjectReference Include="..\WDE.Common.Avalonia\WDE.Common.Avalonia.csproj" />
@@ -45,9 +49,19 @@
         <None Update="data\checker.png">
           <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>
-        <None Update="textures\noise_512.png">
+        <None Update="textures\*.png">
           <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>
+        <None Update="data\wdl.frag">
+          <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        </None>
+        <None Update="data\wdl.json">
+          <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        </None>
+        <None Update="data\wdl.vert">
+          <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        </None>
     </ItemGroup>
+
 
 </Project>

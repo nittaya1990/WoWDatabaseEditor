@@ -1,0 +1,205 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:controls="clr-namespace:AvaloniaStyles.Controls;assembly=AvaloniaStyles"
+             xmlns:settings="clr-namespace:WDE.SqlWorkbench.Settings"
+             xmlns:avaloniaStyles="clr-namespace:AvaloniaStyles;assembly=AvaloniaStyles"
+             xmlns:models="clr-namespace:WDE.SqlWorkbench.Models"
+             xmlns:connection="clr-namespace:WDE.SqlWorkbench.Services.Connection"
+             xmlns:dnD="clr-namespace:WDE.Common.Avalonia.DnD;assembly=WDE.Common.Avalonia"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:DataType="settings:SqlWorkbenchConfigurationViewModel"
+             x:Name="Root"
+             x:Class="WDE.SqlWorkbench.Settings.SqlWorkbenchConfigurationView">
+  <UserControl.Styles>
+    <Style Selector="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+  </UserControl.Styles>
+  <ScrollViewer>
+    <DockPanel>
+      <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10" >
+        <SettingItem Header="Code completion" Help="Note: code completion gets disabled if your document is over 500,000 chars for performance reasons">
+          <ToggleSwitch IsChecked="{CompiledBinding UseCodeCompletion}" />
+        </SettingItem>
+        <SettingItem Header="Open each database in a separate connection" Help="When enabled, each database, no matter if they are in the same group or not, will open a new database connection. When disabled, all databases in a single group will use the same connection (but different groups will still have separate connection)">
+          <ToggleSwitch IsChecked="{CompiledBinding EachDatabaseHasSeparateConnection}" />
+        </SettingItem>
+        <SettingItem Header="Ask before applying changes in SELECT results" Help="When enabled, before applying changes to SELECT results, a window will be opened to verify changes. This is a separate setting to the 'Safety Mode' below (this is only for table value edits in the GUI, Safety is a global setting for any query executed.">
+          <ToggleSwitch IsChecked="{CompiledBinding AskBeforeApplyingChanges}" />
+        </SettingItem>
+        <SettingItem Header="Close SELECT result tabs on query execute" Help="When enabled, before query execution, existing results tabs will be closed (of course unless they have pending changes).">
+          <ToggleSwitch IsChecked="{CompiledBinding AskBeforeApplyingChanges}" />
+        </SettingItem>
+        <SettingItem Header="Custom SQLS path" Help="The editor uses SQLS for code completion. If you built the editor manually, or if you are using Linux or macOS the SQLS is not bundled, you have to download it and provide the path here.">
+          <DockPanel KeyboardNavigation.TabNavigation="Local">
+            <CheckBox IsChecked="{CompiledBinding HasCustomSqlsPath}" TabIndex="0" />
+            <Button Margin="5,0,0,0" DockPanel.Dock="Right" TabIndex="2" Content=" ... " Command="{CompiledBinding PickCustomSqlsPath}" IsEnabled="{CompiledBinding HasCustomSqlsPath}"/>
+            <TextBox Text="{CompiledBinding CustomSqlsPath}" IsEnabled="{CompiledBinding HasCustomSqlsPath}" TabIndex="1" />
+          </DockPanel>
+        </SettingItem>
+        <SettingItem Header="Custom MariaDB path" Help="If you want to import MariaDB databases, you can provide mariadb tool path here.">
+          <DockPanel KeyboardNavigation.TabNavigation="Local">
+            <CheckBox IsChecked="{CompiledBinding HasCustomMariaImportPath}" TabIndex="0" />
+            <Button Margin="5,0,0,0" DockPanel.Dock="Right" TabIndex="3" Content="Download" Command="{CompiledBinding DownloadAndPickCustomMariaDumpCommand}" IsEnabled="{CompiledBinding HasCustomMariaImportPath}"/>
+            <Button Margin="5,0,0,0" DockPanel.Dock="Right" TabIndex="2" Content=" ... " Command="{CompiledBinding PickCustomMariaImportPath}" IsEnabled="{CompiledBinding HasCustomMariaImportPath}"/>
+            <TextBox Text="{CompiledBinding CustomMariaImportPath}" IsEnabled="{CompiledBinding HasCustomMariaImportPath}" TabIndex="1" />
+          </DockPanel>
+        </SettingItem>
+        <SettingItem Header="Custom mysql path" Help="If you want to import MySQL databases, you can provide mysql tool path here.">
+          <DockPanel KeyboardNavigation.TabNavigation="Local">
+            <CheckBox IsChecked="{CompiledBinding HasCustomMySqlImportPath}" TabIndex="0" />
+            <Button Margin="5,0,0,0" DockPanel.Dock="Right" TabIndex="3" Content="Download" Command="{CompiledBinding DownloadAndPickCustomMySqlDumpCommand}" IsEnabled="{CompiledBinding HasCustomMySqlImportPath}"/>
+            <Button Margin="5,0,0,0" DockPanel.Dock="Right" TabIndex="2" Content=" ... " Command="{CompiledBinding PickCustomMySqlImportPath}" IsEnabled="{CompiledBinding HasCustomMySqlImportPath}"/>
+            <TextBox Text="{CompiledBinding CustomMySqlImportPath}" IsEnabled="{CompiledBinding HasCustomMySqlImportPath}" TabIndex="1" />
+          </DockPanel>
+        </SettingItem>
+        <SettingItem Header="Custom MariaDB-dump path" Help="If you want to dump MariaDB databases, you can provide mariadb-dump tool path here.">
+          <DockPanel KeyboardNavigation.TabNavigation="Local">
+            <CheckBox IsChecked="{CompiledBinding HasCustomMariaDumpPath}" TabIndex="0" />
+            <Button Margin="5,0,0,0" DockPanel.Dock="Right" TabIndex="3" Content="Download" Command="{CompiledBinding DownloadAndPickCustomMariaDumpCommand}" IsEnabled="{CompiledBinding HasCustomMariaDumpPath}"/>
+            <Button Margin="5,0,0,0" DockPanel.Dock="Right" TabIndex="2" Content=" ... " Command="{CompiledBinding PickCustomMariaDumpPath}" IsEnabled="{CompiledBinding HasCustomMariaDumpPath}"/>
+            <TextBox Text="{CompiledBinding CustomMariaDumpPath}" IsEnabled="{CompiledBinding HasCustomMariaDumpPath}" TabIndex="1" />
+          </DockPanel>
+        </SettingItem>
+        <SettingItem Header="Custom mysqldump path" Help="If you want to dump MySQL databases, you can provide mysqldump tool path here.">
+          <DockPanel KeyboardNavigation.TabNavigation="Local">
+            <CheckBox IsChecked="{CompiledBinding HasCustomMySqlDumpPath}" TabIndex="0" />
+            <Button Margin="5,0,0,0" DockPanel.Dock="Right" TabIndex="3" Content="Download" Command="{CompiledBinding DownloadAndPickCustomMySqlDumpCommand}" IsEnabled="{CompiledBinding HasCustomMySqlDumpPath}"/>
+            <Button Margin="5,0,0,0" DockPanel.Dock="Right" TabIndex="2" Content=" ... " Command="{CompiledBinding PickCustomMySqlDumpPath}" IsEnabled="{CompiledBinding HasCustomMySqlDumpPath}"/>
+            <TextBox Text="{CompiledBinding CustomMySqlDumpPath}" IsEnabled="{CompiledBinding HasCustomMySqlDumpPath}" TabIndex="1" />
+          </DockPanel>
+        </SettingItem>
+        
+        <SettingItem Header="Default connection" Help="The default connection that will be open when you use the 'New SQL document' button">
+          <ComboBox ItemsSource="{CompiledBinding Connections}" SelectedItem="{CompiledBinding DefaultConnection}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate>
+                <DockPanel>
+                  <WdeImage ImageUri="{CompiledBinding Icon}" Width="24" Height="24" Margin="0,0,5,0" />
+                  <TextBlock Text="{CompiledBinding ConnectionNameOrFallBack}" />
+                </DockPanel>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </SettingItem>
+      </StackPanel>
+      
+      <Grid ColumnDefinitions="Auto,5,5,5,*">
+        <DockPanel>
+          <ToolbarPanel DockPanel.Dock="Bottom">
+            <ButtonImage Image="Icons/icon_add.png" Command="{CompiledBinding AddConnectionCommand}" />
+            <ButtonImage Image="Icons/icon_copy.png" Command="{CompiledBinding DuplicateSelectedConnectionCommand}" />
+            <ButtonImage Image="Icons/icon_delete.png" Command="{CompiledBinding DeleteSelectedConnectionCommand}" />
+          </ToolbarPanel>
+          <ListBox 
+            dnD:DragAndDrop.IsDropTarget="True"
+            dnD:DragAndDrop.DropHandler="{CompiledBinding .}" 
+            dnD:DragAndDrop.IsDragSource="True"
+            ItemsSource="{CompiledBinding Connections}" SelectedItem="{CompiledBinding SelectedConnection}">
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <DockPanel>
+                  <WdeImage Width="16" Height="16" ImageUri="{CompiledBinding Icon}" />
+                  <TextBlock Text="{CompiledBinding ConnectionNameOrFallBack}" 
+                             Foreground="{CompiledBinding Color, Converter={x:Static ColorToBrushConverter.Instance}, TargetNullValue={x:Static avaloniaStyles:SystemTheme.ForegroundColor}}"
+                             Margin="3,0,20,0" />
+                </DockPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </DockPanel>
+        
+        <GridSplitter Grid.Column="2" Classes="vertical" />
+        
+        <Panel Grid.Column="4" Grid.IsSharedSizeScope="True" IsEnabled="{CompiledBinding SelectedConnection, Converter={x:Static NullConverter.IsNotNull}}">
+          
+          <StackPanel DataContext="{CompiledBinding SelectedConnection}">
+            <SettingItem Header="Connection name">
+              <DockPanel HorizontalAlignment="Stretch" KeyboardNavigation.TabNavigation="Local">
+                <Button TabIndex="0" Margin="0,0,2,0" CommandParameter="{CompiledBinding .}" Command="{CompiledBinding #Root.((settings:SqlWorkbenchConfigurationViewModel)DataContext).PickIconCommand}">
+                  <WdeImage Width="24" Height="24" ImageUri="{CompiledBinding Icon}" />
+                </Button>
+                
+                <Button TabIndex="2" DockPanel.Dock="Right" Margin="2,0,0,0" IsEnabled="{CompiledBinding HasColor}">
+                  <Border Background="{CompiledBinding Color, Converter={x:Static ColorToBrushConverter.Instance}}" Width="24" Height="24"  />
+                  <Button.Flyout>
+                    <Flyout>
+                      <DockPanel>
+                        <Slider DockPanel.Dock="Right" Orientation="Vertical" VerticalAlignment="Stretch" Value="{Binding #ColorPicker.Lightness}" Name="Lightness" Minimum="0.1" Maximum="0.9" />
+                        <WdeColorPicker Name="ColorPicker" SelectedColor="{CompiledBinding HslColor, Mode=TwoWay}" Width="200" Height="200" />
+                      </DockPanel>
+                    </Flyout>
+                  </Button.Flyout>
+                </Button>
+                <CheckBox IsChecked="{CompiledBinding HasColor}" Margin="5,0,0,0" DockPanel.Dock="Right" />
+
+                <TextBox TabIndex="1" Text="{CompiledBinding ConnectionName}" Watermark="{CompiledBinding DefaultConnectionName}" />
+              </DockPanel>
+            </SettingItem>
+            
+            <SettingItem Header="Credentials source">
+              <CompletionComboBox SelectedItem="{CompiledBinding CredentialsSource}" controls:Extensions.EnumType="{x:Type models:CredentialsSource}" />
+            </SettingItem>
+            
+            <SettingItem Header="Host" IsEnabled="{CompiledBinding IsCustomCredentials}">
+              <Grid ColumnDefinitions="5*,5,Auto,*">
+                <TextBox Text="{CompiledBinding Host}" />
+              
+                <TextBlock Text="Port" Grid.Column="2" />
+                <TextBox Grid.Column="3" Text="{CompiledBinding Port}" />
+              </Grid>
+            </SettingItem>
+            
+            <SettingItem Header="User" IsEnabled="{CompiledBinding IsCustomCredentials}">
+              <TextBox Text="{CompiledBinding User}" />
+            </SettingItem>
+            
+            <SettingItem Header="Password" IsEnabled="{CompiledBinding IsCustomCredentials}">
+              <TextBox Text="{CompiledBinding Password, Mode=TwoWay}"  RevealPassword="{Binding #TogglePassword.IsPressed}" PasswordChar="•">
+                <TextBox.InnerRightContent>
+                  <Button Name="TogglePassword">Show</Button>
+                </TextBox.InnerRightContent>
+              </TextBox>
+            </SettingItem>
+            
+            <SettingItem Header="Safety Mode" Help="The editor can ask you before execution of any query (any withing the raw SQL editor, not in the other table editors!!), useful if you edit a production database.">
+              <ComboBox SelectedItem="{CompiledBinding SafeMode}" ItemsSource="{x:Static settings:ConnectionConfigViewModel.SafeModes}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="connection:QueryExecutionSafety">
+                    <DockPanel>
+                      <TextBlock DockPanel.Dock="Top" Text="{CompiledBinding ., Converter={x:Static settings:SafeModeToNameConverter.Instance}}" FontWeight="Bold" />
+                      <TextBlock TextWrapping="Wrap" Text="{CompiledBinding ., Converter={x:Static settings:SafeModeToDescriptionConverter.Instance}}" />
+                    </DockPanel>
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </SettingItem>
+            
+            <SettingItem Header="Default database">
+              <DockPanel KeyboardNavigation.TabNavigation="Local">
+                <Button DockPanel.Dock="Right" Content=" ... " TabIndex="2" Command="{CompiledBinding #Root.((settings:SqlWorkbenchConfigurationViewModel)DataContext).PickDatabaseCommand}" CommandParameter="{CompiledBinding .}" />
+                <TextBox Margin="0,0,5,0" TabIndex="0" Text="{CompiledBinding DefaultDatabase}" />
+              </DockPanel>
+            </SettingItem>
+            
+            <SettingItem Header="Expand schemas by default">
+              <SettingItem.Help>By default the databases are not expanded in the tables view, search works only on expanded nodes, so if you want to start searching without expanding manually, enable this.</SettingItem.Help>
+              <ToggleSwitch IsChecked="{CompiledBinding DefaultExpandSchemas}" />
+            </SettingItem>
+            
+            <SettingItem Header="Show only selected databases">
+              <SettingItem.Help>Use this if you don't want to see all databases in the tables panel.</SettingItem.Help>
+              <DockPanel KeyboardNavigation.TabNavigation="Local">
+                <Button IsEnabled="{CompiledBinding ShowOnlyVisibleSchemas}" TabIndex="1" DockPanel.Dock="Right" CommandParameter="{CompiledBinding .}" Command="{CompiledBinding #Root.((settings:SqlWorkbenchConfigurationViewModel)DataContext).PickVisibleDatabasesCommand}">Pick</Button>
+                <ToggleSwitch DockPanel.Dock="Right" TabIndex="0" IsChecked="{CompiledBinding ShowOnlyVisibleSchemas}"/>
+                <TextBlock Text="{CompiledBinding VisibleSchemasAsText}" />
+              </DockPanel>
+            </SettingItem>
+          </StackPanel>
+        </Panel>
+      </Grid>
+    </DockPanel>
+  </ScrollViewer>
+</UserControl>

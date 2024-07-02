@@ -9,59 +9,34 @@ namespace WDE.DatabaseEditors.Extensions
         {
             if (string.IsNullOrEmpty(comment))
                 return str;
-            return str + " // " + comment;
+            if (string.IsNullOrEmpty(str))
+                return comment ?? "";
+            var existingComment = str.IndexOf(" // ", StringComparison.Ordinal);
+            if (existingComment == -1)
+                return str + " // " + comment;
+            else
+                return str.Substring(0, existingComment + 4) + comment;
         }
         
         public static string? GetComment(this string? str, bool canBeNull)
+        {
+            return GetCommentUnlessDefault(str, null, canBeNull);
+        }
+        
+        public static string? GetCommentUnlessDefault(this string? str, string? defaultValue, bool canBeNull)
         {
             if (string.IsNullOrEmpty(str))
                 return canBeNull ? null : "";
 
             int indexOf = str.IndexOf(" // ", StringComparison.Ordinal);
             if (indexOf == -1)
-                return canBeNull ? null : "";
-
-            return str.Substring(indexOf + 4);
-        }
-    
-        public static string ToTitleCase(this string str)
-        {
-            StringBuilder sb = new();
-
-            bool previousWasSeparator = true;
-            bool previousWasLetter = false;
-            bool previousWasLowerLetter = false;
-            bool previousWasDigit = false;
-
-            foreach (var c in str)
             {
-                char chr = c;
-                if (chr == '_')
-                    chr = ' ';
-
-                if (Char.IsDigit(c) && previousWasLetter)
-                    sb.Append(' ');
-
-                if (Char.IsUpper(c) && previousWasLowerLetter)
-                    sb.Append(' ');
-                
-                if (previousWasSeparator)
-                {
-                    sb.Append(char.ToUpper(chr));
-                    previousWasSeparator = false;
-                }
-                else
-                    sb.Append(chr);
-                
-                
-                if (chr == ' ')
-                    previousWasSeparator = true;
-                previousWasDigit = Char.IsDigit(c);
-                previousWasLetter = Char.IsLetter(c);
-                previousWasLowerLetter = previousWasLetter && Char.IsLower(c);
+                if (str == defaultValue)
+                    return canBeNull ? null : "";
+                return str;
             }
 
-            return sb.ToString();
+            return str.Substring(indexOf + 4);
         }
     }
 }

@@ -1,10 +1,15 @@
+using System.Linq;
+using AvaloniaStyles.Controls.FastTableView;
 using Prism.Mvvm;
+using PropertyChanged.SourceGenerator;
 using WDE.DatabaseEditors.Data.Structs;
+using WDE.MVVM;
 
 namespace WDE.DatabaseEditors.ViewModels.MultiRow
 {
-    public class DatabaseColumnHeaderViewModel : BindableBase
+    public partial class DatabaseColumnHeaderViewModel : ObservableBase, ITableColumnHeader
     {
+        [Notify] private bool isVisible = true;
         public string Name { get; }
         public string? Help { get; }
         public string DatabaseName { get; }
@@ -16,12 +21,17 @@ namespace WDE.DatabaseEditors.ViewModels.MultiRow
             DatabaseName = column.DbColumnName;
             Help = column.Help;
             PreferredWidth = column.PreferredWidth;
+            width = PreferredWidth ?? 100;
+            if (!string.IsNullOrWhiteSpace(column.ColumnIdForUi))
+                ColumnIdForUi = column.ColumnIdForUi;
+            else if (DatabaseName.Length > 0)
+                ColumnIdForUi = DatabaseName;
+            else
+                ColumnIdForUi = string.Concat(Name.Where(char.IsLetter));
         }
 
-        public DatabaseColumnHeaderViewModel(string name, string databaseName)
-        {
-            Name = name;
-            DatabaseName = databaseName;
-        }
+        public string ColumnIdForUi { get; }
+        public string Header => Name;
+        [Notify] private double width;
     }
 }

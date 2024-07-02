@@ -101,8 +101,8 @@
 				"description": "Faction ID to test"
 			},
 			{
-				"type": "ReputationRankParameter",
-				"name": "Minimum rank"
+				"type": "ReputationRankMaskParameter",
+				"name": "Rank"
 			}
 		],
 		"description": "{target} {negate:has at least|has no more than} reputation {pram2} to faction {pram1}"
@@ -225,26 +225,24 @@
 		"parameters": [
 			{
 				"type": "Parameter",
-				"name": "Data Type",
-				"description": "DEF"
+				"name": "Data Type"
 			},
 			{
 				"type": "Parameter",
 				"name": "Value",
-				"description": "If BOSS_STATE, avaliable values: NOT_STARTED = 0, IN_PROGRESS = 1, FAIL = 2, DONE = 3, SPECIAL = 4, TO_BE_DECIDED = 5"
+				"description": "If BOSS_STATE, available values: NOT_STARTED = 0, IN_PROGRESS = 1, FAIL = 2, DONE = 3, SPECIAL = 4, TO_BE_DECIDED = 5"
 			},
 			{
 				"type": "SwitchParameter",
 				"name": "Type",
 				"values": {
 					"0": {"name": "INSTANCE_INFO_DATA"},
-					"1": {"name": "INSTANCE_INFO_GUID_DATA"},
 					"2": {"name": "INSTANCE_INFO_BOSS_STATE"},
 					"3": {"name": "INSTANCE_INFO_DATA64"}
 				}
 			}
 		],
-		"description": "{negate:|NOT }{pram3value:choose(0|1|2|3):instance data {pram1} equals {pram2}|??????|boss {pram1} {pram2value:choose(0|1|2|3|4|5):has not started|is in progress|failed|special state|is to be decided?}|data64[{pram1}] = {pram2}}"
+		"description": "{negate:|NOT }{pram3value:choose(0|1|2|3):instance data {pram1} equals {pram2}|[not supported]|boss {pram1} {pram2value:choose(0|1|2|3|4|5):has not started|is in progress|failed|is done|special state|is to be decided}|data64[{pram1}] = {pram2}}"
 	},
 
 	{
@@ -520,7 +518,7 @@
 				"description": "Creature or gameobject entry"
 			},
 			{
-				"type": "Parameter",
+				"type": "ConditionObjectGuidParameter",
 				"name": "Guid from DB"
 			}
 		],
@@ -537,16 +535,10 @@
 				"type": "FlagParameter",
 				"name": "Type Mask",
 				"values": {
-					"1": {"name": "TYPEMASK_OBJECT"},
-					"2": {"name": "TYPEMASK_ITEM"},
-					"6": {"name": "TYPEMASK_CONTAINER", "description": "TYPEMASK_ITEM | 0x0004"},
-					"8": {"name": "TYPEMASK_UNIT"},
-					"16": {"name": "TYPEMASK_PLAYER"},
-					"32": {"name": "TYPEMASK_GAMEOBJECT"},
-					"64": {"name": "TYPEMASK_DYNAMICOBJECT"},
-					"128": {"name": "TYPEMASK_CORPSE"},
-					"256": {"name": "TYPEMASK_AREATRIGGER"},
-					"88": {"name": "TYPEMASK_SEER", "description": "TYPEMASK_PLAYER | TYPEMASK_UNIT | TYPEMASK_DYNAMICOBJECT"}
+					"8": {"name": "player or creature"},
+					"16": {"name": "player"},
+					"32": {"name": "gameobject"},
+					"128": {"name": "corpse"}
 				}
 			}
 		],
@@ -800,10 +792,18 @@
 			{
 				"type": "Parameter",
 				"name": "Objective ID"
-			}
+			},
+                        {
+                                "type": "Parameter",
+                                "name": "Unused"
+                        },
+                        {
+                                "type": "Parameter",
+                                "name": "Objective counter"
+                        }
 		],
 		"help": "Condition is met if target player has completed quest objective",
-		"description": "{target} {negate:has completed objective {pram1} (but hasn't rewarded quest yet)|hasn't completed objective {pram1} or has rewarded the quest}"
+		"description": "{target} {negate:has quest objective {pram1} == {pram3} (but hasn't rewarded quest yet)|hasn't quest objective {pram1} < {pram3} or has rewarded the quest}"
 	},
 	{
 		"id": 49,
@@ -866,7 +866,7 @@
 				"description": "Creature or gameobject entry"
 			},
 			{
-				"type": "Parameter",
+				"type": "ConditionObjectGuidParameter",
 				"name": "Guid from DB"
 			}
 		],
@@ -916,16 +916,65 @@
 
 	{
 		"id": 54,
-		"name": "CONDITION_CREATURE_SUBFAMILY",
-		"name_readable": "Is of subfamily",
-		"help": "Condition is met if target is creature of subfamily",
+		"name": "CONDITION_SCENARIO_STEP",
+		"name_readable": "Is at Scenario Step",
+		"help": "Condition is met if target is at Scenario with Step",
 		"parameters": [
 			{
 				"type": "Parameter",
-				"name": "Subfamily"
+				"name": "ScenarioStep ID"
 			}
 		],
-		"description": "{target} {negate:is|is not} of subfamily {pram1}"
+		"description": "{target} {negate:is|is not} at Scenario with Step {pram1}"
+	},
+
+	{
+		"id": 55,
+		"name": "CONDITION_SCENE_IN_PROGRESS",
+		"name_readable": "Has Scene In Progress",
+		"help": "Condition is met if target has a scene playing",
+		"parameters": [
+			{
+				"type": "Parameter",
+				"name": "SceneId"
+			}
+		],
+		"description": "{target} {negate:has|has not} Scene {pram1} in progress"
+	},
+
+	{
+		"id": 56,
+		"name": "CONDITION_PLAYER_CONDITION",
+		"name_readable": "Player Condition met",
+		"help": "Condition is met if target has a player condition met",
+		"parameters": [
+			{
+				"type": "PlayerConditionParameter",
+				"name": "Condition id"
+			}
+		],
+		"description": "{target} {negate:meets|does not meet} player condition {pram1}"
+	},
+
+	{
+		"id": 57,
+		"name": "CONDITION_PRIVATE_OBJECT",
+		"name_readable": "Is Private Object",
+		"help": "Condition is met if the target is a private object",
+		"description": "{target} {negate:is|is not} a private object"
+	},
+
+	{
+		"id": 58,
+		"name": "CONDITION_STRING_ID",
+		"name_readable": "Has StringId",
+		"help": "Condition is met if target has a specific string id",
+		"sparameters": [
+			{
+				"name": "String id"
+			}
+		],
+		"description": "{target} {negate:is|is not} {spram1}"
 	}
 
 ]

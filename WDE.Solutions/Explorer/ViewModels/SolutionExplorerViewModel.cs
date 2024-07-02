@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
+using AsyncAwaitBestPractices.MVVM;
 using Prism.Commands;
 using Prism.Events;
 using Prism.Mvvm;
@@ -18,12 +19,14 @@ using WDE.Common.Utils;
 using WDE.Common.Utils.DragDrop;
 using WDE.Common.Windows;
 using WDE.Module.Attributes;
+using WDE.MVVM;
+using WDE.MVVM.Observable;
 
 namespace WDE.Solutions.Explorer.ViewModels
 {
     [AutoRegister]
     [SingleInstance]
-    public class SolutionExplorerViewModel : BindableBase, ITool, IDropTarget
+    public class SolutionExplorerViewModel : ObservableBase, ITool, IDropTarget
     {
         private readonly IEventAggregator ea;
         private readonly ISolutionItemNameRegistry itemNameRegistry;
@@ -132,17 +135,18 @@ namespace WDE.Solutions.Explorer.ViewModels
                     AddItems.Add(category);
                 }
                 
-                category.Items.Add(new SolutionItemMenuViewModel(item, insertItemCommand));
+                category.Items.Add(new SolutionItemMenuViewModel(item, messageBoxService, insertItemCommand));
             }
 
-            AddItem = new DelegateCommand(async () =>
+            AddItem = new AsyncCommand(async () =>
             {
                 ISolutionItem? item = await newItemService.GetNewSolutionItem();
                 if (item != null)
                     DoAddItem(item);
-            }, () => (SelectedItem == null || SelectedItem.IsContainer) && SelectedItems.Count <= 1)
-                .ObservesProperty(() => SelectedItem)
-                .ObservesProperty(() => SelectedItems.Count);
+            }, _ => (SelectedItem == null || SelectedItem.IsContainer) && SelectedItems.Count <= 1)
+            .WrapMessageBox<Exception>(messageBoxService);
+            On(() => SelectedItem, _ => AddItem.RaiseCanExecuteChanged());
+            SelectedItems.CollectionChanged += (sender, args) => AddItem.RaiseCanExecuteChanged();
 
             RemoveItem = new DelegateCommand<SolutionItemViewModel>(vm =>
             {
@@ -212,18 +216,22 @@ namespace WDE.Solutions.Explorer.ViewModels
                 if (vm != null)
                     solutionTasksService.SaveAndReloadSolutionTask(vm.Item);
             }, vm => vm != null && solutionTasksService.CanSaveAndReloadRemotely);
+            solutionTasksService.ToObservable(x => x.CanSaveAndReloadRemotely)
+                .SubscribeAction(_ => ExportToServer.RaiseCanExecuteChanged());
 
             ExportToServerItem = new DelegateCommand<object>(item =>
             {
                 if (item is SolutionItemViewModel si)
                     solutionTasksService.SaveAndReloadSolutionTask(si.Item);
             }, item => solutionTasksService.CanSaveAndReloadRemotely);
+            solutionTasksService.ToObservable(x => x.CanSaveAndReloadRemotely)
+                .SubscribeAction(_ => ExportToServerItem.RaiseCanExecuteChanged());
         }
 
         private void DeleteSolutionItem(SolutionItemViewModel item)
         {
             if (item.Parent == null)
-                this.solutionManager.Items.Remove(item.Item);
+                this.solutionManager.Remove(item.Item);
             else
                 item.Parent.Item.Items?.Remove(item.Item);
             
@@ -253,7 +261,7 @@ namespace WDE.Solutions.Explorer.ViewModels
             if (existing == null)
             {
                 if (selected == null)
-                    solutionManager.Items.Add(item);
+                    solutionManager.Add(item);
                 else if (selected.Item.Items != null && selected.Item.IsContainer)
                     selected.Item.Items.Add(item);
                 else if (selected.Parent != null)
@@ -275,7 +283,7 @@ namespace WDE.Solutions.Explorer.ViewModels
 
         public ObservableCollection<SolutionItemViewModel> Root { get; }
         public ObservableCollection<AddItemCategoryMenuViewModel> AddItems { get; } = new();
-        public DelegateCommand AddItem { get; }
+        public IAsyncCommand AddItem { get; }
         public DelegateCommand<SolutionItemViewModel> RemoveItem { get; }
         public AsyncAutoCommand<SolutionItemViewModel> RenameItem { get; }
         public DelegateCommand<SolutionItemViewModel> GenerateSQL { get; }
@@ -292,14 +300,14 @@ namespace WDE.Solutions.Explorer.ViewModels
 
             if (sourceItem != null)
             {
-                bool highlight = dropInfo.InsertPosition.HasFlag(RelativeInsertPosition.TargetItemCenter) &&
+                bool highlight = dropInfo.InsertPosition.HasFlagFast(RelativeInsertPosition.TargetItemCenter) &&
                                  (targetItem?.IsContainer ?? false);
 
                 dropInfo.DropTargetAdorner = highlight ? DropTargetAdorners.Highlight : DropTargetAdorners.Insert;
                 dropInfo.Effects = DragDropEffects.Move;
             }
         }
-
+        
         public void Drop(IDropInfo dropInfo)
         {
             SolutionItemViewModel? sourceItem = dropInfo.Data as SolutionItemViewModel;
@@ -309,7 +317,7 @@ namespace WDE.Solutions.Explorer.ViewModels
                 return;
 
             var prevPosition = 0;
-            var sourceList = sourceItem.Parent == null ? solutionManager.Items : sourceItem.Parent.Item.Items;
+            var sourceList = sourceItem.Parent == null ? (ObservableCollection<ISolutionItem>)solutionManager.Items : sourceItem.Parent.Item.Items;
             if (sourceList == null)
                 return;
             
@@ -317,7 +325,7 @@ namespace WDE.Solutions.Explorer.ViewModels
                 ? targetItem
                 : targetItem?.Parent;
             
-            var destList = destListOwner?.Item?.Items ?? solutionManager.Items;
+            var destList = destListOwner?.Item?.Items ?? (ObservableCollection<ISolutionItem>)solutionManager.Items;
 
             while (destListOwner != null)
             {

@@ -38,6 +38,22 @@ namespace WDE.SmartScriptEditor.Models
             }
         }
         
+        private uint entry;
+        public uint Entry
+        {
+            get => entry;
+            set
+            {
+                if (entry == value)
+                    return;
+                var old = entry;
+                entry = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(Entry));
+                EntryChanged?.Invoke(this, old, entry);
+            }
+        }
+        
         private string name = "";
         public string Name
         {
@@ -86,30 +102,26 @@ namespace WDE.SmartScriptEditor.Models
         {
             get
             {
-                switch (VariableType)
+                return VariableType switch
                 {
-                    case GlobalVariableType.StoredTarget:
-                        return $"Define storedTarget[{Key}] as {Name}";
-                    case GlobalVariableType.DataVariable:
-                        return $"Define objectData[{Key}] as {Name}";
-                    case GlobalVariableType.TimedEvent:
-                        return $"Define timedEvent[{Key}] as {Name}";
-                    case GlobalVariableType.Action:
-                        return $"Define doAction({Key}) as {Name}";
-                    case GlobalVariableType.Function:
-                        return $"Define function({Key}) as {Name}";
-                    case GlobalVariableType.StoredPoint:
-                        return $"Define storedPoint[{Key}] as {Name}";
-                    case GlobalVariableType.DatabasePoint:
-                        return $"Define databasePoint[{Key}] as {Name}";
-                    default:
-                        throw new ArgumentOutOfRangeException();
-                }
+                    GlobalVariableType.StoredTarget => $"Define storedTarget[{Key}] as {Name}",
+                    GlobalVariableType.DataVariable => $"Define objectData[{Key}] as {Name}",
+                    GlobalVariableType.TimedEvent => $"Define timedEvent[{Key}] as {Name}",
+                    GlobalVariableType.Action => $"Define doAction({Key}) as {Name}",
+                    GlobalVariableType.Function => $"Define function({Key}) as {Name}",
+                    GlobalVariableType.StoredPoint => $"Define storedPoint[{Key}] as {Name}",
+                    GlobalVariableType.DatabasePoint => $"Define databasePoint[{Key}] as {Name}",
+                    GlobalVariableType.Actor => $"Define actor[{Key}] as {Name}",
+                    GlobalVariableType.Repeated => $"Define repeated[{Key}] as {Name}",
+                    GlobalVariableType.MapEvent => $"Define mapEvent[{Key}] as {Name}",
+                    _ => throw new ArgumentOutOfRangeException()
+                };
             }
         }
 
         public event System.Action<GlobalVariable, string?, string?>? CommentChanged; 
         public event System.Action<GlobalVariable, long, long>? KeyChanged; 
+        public event System.Action<GlobalVariable, uint, uint>? EntryChanged; 
         public event System.Action<GlobalVariable, string, string>? NameChanged; 
         public event System.Action<GlobalVariable, GlobalVariableType, GlobalVariableType>? VariableTypeChanged; 
         
@@ -119,6 +131,12 @@ namespace WDE.SmartScriptEditor.Models
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
+        
+    
+        // while it breaks a single responsibility principle, it makes the code work way faster by caching it here
+        // without using any additional Dictionaries, so for sake of performance, let's keep it this way
+        public double? CachedHeight { get; set; }
+        public PositionSize Position { get; set; }
     }
 
     public enum GlobalVariableType
@@ -130,5 +148,8 @@ namespace WDE.SmartScriptEditor.Models
         Function,
         StoredPoint,
         DatabasePoint,
+        Actor,
+        Repeated,
+        MapEvent
     }
 }

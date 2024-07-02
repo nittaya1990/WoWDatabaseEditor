@@ -3,36 +3,33 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             xmlns:data="clr-namespace:WDE.DbcStore"
-             xmlns:System="clr-namespace:System;assembly=mscorlib"
              xmlns:mvvm="http://prismlibrary.com/"
+             xmlns:viewModels="clr-namespace:WDE.DbcStore.ViewModels;assembly=WDE.DbcStore"
              mvvm:ViewModelLocator.AutoWireViewModel="False"
+             x:DataType="viewModels:DBCConfigViewModel"
              mc:Ignorable="d">
-    
-    <Grid>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="Auto" />
-            <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="Auto" />
-        </Grid.ColumnDefinitions>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-        <TextBlock Text="Path to DBC/DB2s" VerticalAlignment="Center" />
-        <TextBox Margin="5" Grid.Column="1" Grid.Row="0"
-                 Text="{Binding Path, Mode=TwoWay}" Padding="5" Name="Path" />
-        <Button Grid.Column="2" Grid.Row="0" Padding="5" VerticalAlignment="Center" Command="{Binding PickFolder}">...</Button>
-
-        <TextBlock Text="DBC/DB2 Version" VerticalAlignment="Center" Grid.Row="1" />
-        <ComboBox Name="dbcVersion" Grid.Row="1" Grid.Column="1" Margin="5" Padding="5"
-                  VerticalAlignment="Center" HorizontalAlignment="Stretch"
-                  Items="{Binding DBCVersions}"
-                  SelectedItem="{Binding DBCVersion}" />
-
-        <TextBlock Text="Skip loading dbc" VerticalAlignment="Center" Grid.Row="2" />
-        <CheckBox Grid.Column="1" IsChecked="{Binding SkipLoading}" Padding="0" Margin="0" Grid.Row="2"
-                  HorizontalAlignment="Center" VerticalAlignment="Center" />
-    </Grid>
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Grid.IsSharedSizeScope="True">
+            <SettingItem Header="DBC Path">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Padding="5" VerticalAlignment="Center" Command="{CompiledBinding PickFolder}">...</Button>
+                    <TextBox Text="{CompiledBinding Path, Mode=TwoWay}" Padding="5" Name="Path" />
+                </DockPanel>
+            </SettingItem>
+            <SettingItem Header="DBC version">
+                <ComboBox Name="dbcVersion"
+                          ItemsSource="{CompiledBinding DBCVersions}"
+                          SelectedItem="{CompiledBinding DBCVersion}" />
+            </SettingItem>
+            <SettingItem Header="DBC locale">
+                <ComboBox Name="dbcLocale" 
+                          ItemsSource="{CompiledBinding DBCLocales}"
+                          IsEnabled="{CompiledBinding CanPickLocale}"
+                          SelectedItem="{CompiledBinding DBCLocale}" />
+            </SettingItem>
+            <SettingItem Header="Skip loading DBC" Help="This is mostly for the editor development.">
+                <ToggleSwitch IsChecked="{CompiledBinding SkipLoading}" OffContent="" OnContent="" />
+            </SettingItem>
+        </StackPanel>
+    </ScrollViewer>
 </UserControl>

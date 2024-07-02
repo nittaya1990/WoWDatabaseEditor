@@ -1,14 +1,19 @@
 using System;
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Styling;
+using AvaloniaStyles.Utils;
 
 namespace AvaloniaStyles.Controls
 {
-    public class BaseMessageBoxWindow : Window, IStyleable
+    public class BaseMessageBoxWindow : Window
     {
+        protected override Type StyleKeyOverride => typeof(BaseMessageBoxWindow);
+
         public static readonly StyledProperty<string> MessageProperty =
             AvaloniaProperty.Register<BaseMessageBoxWindow, string>(nameof(Message));
         
@@ -27,10 +32,10 @@ namespace AvaloniaStyles.Controls
             set => SetValue(HeaderProperty, value);
         }
         
-        public static readonly StyledProperty<IControl> ImageProperty =
-            AvaloniaProperty.Register<BaseMessageBoxWindow, IControl>(nameof(Image));
+        public static readonly StyledProperty<Control> ImageProperty =
+            AvaloniaProperty.Register<BaseMessageBoxWindow, Control>(nameof(Image));
         
-        public IControl Image
+        public Control Image
         {
             get => GetValue(ImageProperty);
             set => SetValue(ImageProperty, value);
@@ -38,15 +43,24 @@ namespace AvaloniaStyles.Controls
         
         public BaseMessageBoxWindow()
         {
-            this.AttachDevTools();
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                PseudoClasses.Add(":macos");
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                PseudoClasses.Add(":windows");
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                PseudoClasses.Add(":linux");
+
+            if (TryGetPlatformHandle() is { } handle)
+               Win32.SetDarkMode(handle.Handle, SystemTheme.EffectiveThemeIsDark);
         }
-        
-        Type IStyleable.StyleKey => typeof(BaseMessageBoxWindow);
 
         protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
         {
             base.OnApplyTemplate(e);
             ExtendClientAreaChromeHints = ExtendClientAreaChromeHints.NoChrome;
+            if (Background is ISolidColorBrush brush)
+                if (TryGetPlatformHandle() is { } handle)
+                    Win32.SetTitleBarColor(handle.Handle, brush.Color);
         }
     }
 }

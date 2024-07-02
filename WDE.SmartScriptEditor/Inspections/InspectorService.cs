@@ -1,8 +1,11 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reactive.Linq;
 using WDE.Common.CoreVersion;
 using WDE.Common.Managers;
 using WDE.Module.Attributes;
+using WDE.MVVM.Observable;
 using WDE.SmartScriptEditor.Data;
 using WDE.SmartScriptEditor.Models;
 
@@ -17,6 +20,8 @@ namespace WDE.SmartScriptEditor.Inspections
     [AutoRegister]
     public class SmartScriptInspectorService : ISmartScriptInspectorService
     {
+        private readonly ISmartDataManager smartDataManager;
+        private readonly ICurrentCoreVersion currentCoreVersion;
         private readonly IList<IScriptInspection> scriptInspections = new List<IScriptInspection>();
 
         private readonly IList<IEventInspection> eventInspections = new List<IEventInspection>();
@@ -29,19 +34,29 @@ namespace WDE.SmartScriptEditor.Inspections
 
         public SmartScriptInspectorService(ISmartDataManager smartDataManager, ICurrentCoreVersion currentCoreVersion)
         {
-            foreach (var ev in smartDataManager.GetAllData(SmartType.SmartEvent))
+            this.smartDataManager = smartDataManager;
+            this.currentCoreVersion = currentCoreVersion;
+            smartDataManager.GetAllData(SmartType.SmartEvent)
+                .CombineLatest(smartDataManager.GetAllData(SmartType.SmartAction))
+                .CombineLatest(smartDataManager.GetAllData(SmartType.SmartTarget))
+                .SubscribeAction(tuple => Load(tuple.First.First, tuple.First.Second, tuple.Second));
+        }
+
+        private void Load(IReadOnlyList<SmartGenericJsonData> events, IReadOnlyList<SmartGenericJsonData> actions, IReadOnlyList<SmartGenericJsonData> targets)
+        {
+            foreach (var ev in events)
             {
                 foreach (var inspection in GenerateRules(ev))
                     AddEventRule(inspection.Item1, inspection.Item2);
             }
             
-            foreach (var ev in smartDataManager.GetAllData(SmartType.SmartAction))
+            foreach (var ev in actions)
             {
                 foreach (var inspection in GenerateRules(ev))
                     AddActionRule(inspection.Item1, inspection.Item2);
             }
             
-            foreach (var ev in smartDataManager.GetAllData(SmartType.SmartTarget))
+            foreach (var ev in targets)
             {
                 foreach (var inspection in GenerateRules(ev))
                     AddTargetRule(inspection.Item1, inspection.Item2);
@@ -56,9 +71,12 @@ namespace WDE.SmartScriptEditor.Inspections
             eventInspections.Add(new NoActionInspection());
             eventInspections.Add(new NoActionInvokerAfterWaitInspection());
             eventInspections.Add(new AwaitAfterAsyncInspection(smartDataManager));
+            eventInspections.Add(new NeedsAwaitInspection(smartDataManager));
+            eventInspections.Add(new MustBeLastInspection(smartDataManager));
             eventInspections.Add(new IndentationInspection());
             eventInspections.Add(new BeginInlineActionListOnlyOnceInspection());
             eventInspections.Add(new MovementAwaitOnlyAfterMovement());
+            eventInspections.Add(new RepeatTimedActionListOnlyInBeginInlineTimedActionListInspection());
             
             actionInspections.Add(new ParameterRangeInspection());
             if (!currentCoreVersion.Current.SmartScriptFeatures.SupportsCreatingTimedEventsInsideTimedEvents)
@@ -72,7 +90,7 @@ namespace WDE.SmartScriptEditor.Inspections
             eventInspections.Add(new UnusedParameterInspection());
             actionInspections.Add(new UnusedParameterInspection());
         }
-        
+
         public IReadOnlyList<IInspectionResult> GenerateInspections(SmartScriptBase script)
         {
             var list = new List<IInspectionResult>();
@@ -95,6 +113,8 @@ namespace WDE.SmartScriptEditor.Inspections
 
         private IEnumerable<IInspectionResult> GenerateInspectionsForEvent(SmartEvent ev)
         {
+            if (ev.IsGroup)
+                yield break;
             foreach (var i in eventInspections)
             {
                 var result = i.Inspect(ev);
@@ -192,38 +212,14 @@ namespace WDE.SmartScriptEditor.Inspections
 
             if (ev.BuiltinRules != null)
             {
-                foreach (var builtinRule in ev.BuiltinRules)
+                foreach (var rule in ev.BuiltinRules)
                 {
-                    int brace = builtinRule.IndexOf("(");
-                    if (brace == -1 || builtinRule.Length == 0 || builtinRule[^1] != ')')
-                        continue;
-
-                    string type = builtinRule.Substring(0, brace);
-                    List<int> prams = builtinRule
-                        .Substring(brace + 1, builtinRule.Length - brace - 2)
-                        .Split(',')
-                        .Select(int.Parse).ToList();
-
-                    if (type == "nonzero")
+                    yield return rule.Type switch
                     {
-                        if (prams.Count == 1)
-                            yield return (ev.Id, new NonZeroInspection(ev, prams[0] - 1));
-                    }
-                    else if (type == "is_repeat")
-                    {
-                        if (prams.Count == 1)
-                            yield return (ev.Id, new RepeatInspection(ev, prams[0] - 1));
-                    }
-                    else if (type == "minmax")
-                    {
-                        if (prams.Count == 2)
-                            yield return (ev.Id, new MinMaxInspection(ev, prams[0] - 1, prams[1] - 1));
-                    }
-                    else if (type == "percent")
-                    {
-                        if (prams.Count == 1)
-                            yield return (ev.Id, new PercentValueInspection(ev, prams[0] - 1));
-                    }
+                        SmartBuiltInRuleType.IsRepeat => (ev.Id, new RepeatInspection(ev, rule.Parameter1)),
+                        SmartBuiltInRuleType.MinMax => (ev.Id, new MinMaxInspection(ev, rule.Parameter1, rule.Parameter2)),
+                        _ => throw new Exception("Couldn't understand builtin rule type: " + rule.Type)
+                    };
                 }
             }
         }

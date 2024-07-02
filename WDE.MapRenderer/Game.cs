@@ -1,5 +1,7 @@
+using System.Windows.Input;
 using Prism.Ioc;
 using TheEngine;
+using TheEngine.Coroutines;
 using TheEngine.ECS;
 using TheEngine.Interfaces;
 using TheEngine.PhysicsSystem;
@@ -10,6 +12,7 @@ using WDE.Common.MPQ;
 using WDE.Common.Services.MessageBox;
 using WDE.Common.Utils;
 using WDE.MapRenderer.Managers;
+using WDE.Module;
 using WDE.Module.Attributes;
 
 namespace WDE.MapRenderer;
@@ -23,6 +26,7 @@ public class Game : IGame
     private readonly IMessageBoxService messageBoxService;
     private readonly IDatabaseClientFileOpener databaseClientFileOpener;
     private readonly IDatabaseProvider databaseProvider;
+    private readonly IScopedContainer scopedContainer;
     private GameManager? manager;
     public GameManager? Manager => manager; 
         
@@ -30,13 +34,15 @@ public class Game : IGame
     public Task<bool> WaitForInitialized => waitForInitialized.Task;
     public event Action? OnInitialized;
     public event Action? OnFailedInitialize;
+    private IScopedContainer gameScope;
     
     public Game(IMpqService mpqService, 
         IGameView gameView,
         IGameProperties gameProperties,
         IMessageBoxService messageBoxService,
         IDatabaseClientFileOpener databaseClientFileOpener,
-        IDatabaseProvider databaseProvider)
+        IDatabaseProvider databaseProvider,
+        IScopedContainer scopedContainer)
     {
         this.mpqService = mpqService;
         this.gameView = gameView;
@@ -44,14 +50,14 @@ public class Game : IGame
         this.messageBoxService = messageBoxService;
         this.databaseClientFileOpener = databaseClientFileOpener;
         this.databaseProvider = databaseProvider;
-    }
-        
+        this.scopedContainer = scopedContainer;
+    } 
+
     public bool Initialize(Engine engine)
     {
-        var unity = new UnityContainer();
-        unity.AddExtension(new Diagnostic());
-        var provider = new UnityContainerProvider(unity);
-        var registry = new UnityContainerRegistry(unity);
+        gameScope = scopedContainer.CreateScope();
+        var provider = gameScope;
+        var registry = gameScope;
 
         registry.RegisterInstance(typeof(IGameProperties), gameProperties);
         registry.RegisterInstance(typeof(Engine), engine);
@@ -85,18 +91,32 @@ public class Game : IGame
         registry.RegisterSingleton<MdxManager>();
         registry.RegisterSingleton<WmoManager>();
         registry.RegisterSingleton<WorldManager>();
+        registry.RegisterSingleton<LowDetailHeightMapManager>();
+        registry.RegisterSingleton<ZoneAreaManager>();
         registry.RegisterSingleton<ChunkManager>();
         registry.RegisterSingleton<CameraManager>();
         registry.RegisterSingleton<LightingManager>();
         registry.RegisterSingleton<AreaTriggerManager>();
         registry.RegisterSingleton<RaycastSystem>();
         registry.RegisterSingleton<ModuleManager>();
+        registry.RegisterSingleton<CoroutineManager>();
         registry.RegisterSingleton<IGameFiles, GameFiles>();
+        registry.RegisterSingleton<IChangesManager, ChangesManager>();
         
         manager = (GameManager)provider.Resolve(typeof(GameManager));
         registry.RegisterInstance<IGameContext>(manager);
-            
-        bool success = manager.Initialize();
+
+        bool success;
+        try
+        {
+            success = manager.Initialize();
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+            messageBoxService.SimpleDialog("Error", "Couldn't initialize the 3D view", "Details: " + e.InnerException?.InnerException?.Message ?? e.Message + "\n\nPlease report to the developer.").ListenErrors();
+            success = false;
+        }
         if (!success)
         {
             manager.DisposeGame();
@@ -123,12 +143,18 @@ public class Game : IGame
         manager?.Render(delta);
     }
 
+    public void RenderTransparent(float delta)
+    {
+        manager?.RenderTransparent(delta);
+    }
+
     public void RenderGUI(float delta)
     {
         manager?.RenderGui(delta);
     }
 
     public event Action? RequestDispose;
+    public event Action<Game>? OnAfterDisposed;
         
     public void DoDispose()
     {
@@ -138,11 +164,18 @@ public class Game : IGame
     public void DisposeGame()
     {
         manager?.DisposeGame();
+        gameScope.Dispose();
+        OnAfterDisposed?.Invoke(this);
         waitForInitialized = new();
     }
 
     public T? Resolve<T>() where T : class
     {
         return manager?.ResolveInstance<T>();
+    }
+
+    public List<(string, ICommand, object?)>? GenerateContextMenu()
+    {
+        return manager?.GenerateContextMenu();
     }
 }

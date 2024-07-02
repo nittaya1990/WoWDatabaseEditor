@@ -1,4 +1,3 @@
-using System;
 using OpenGLBindings;
 
 namespace TheAvaloniaOpenGL.Resources
@@ -12,14 +11,31 @@ namespace TheAvaloniaOpenGL.Resources
 
         internal readonly int Handle;
 
-        protected static PixelInternalFormat ToInternalFormat(TextureFormat textureFormat)
+        protected static void ToInternalFormat(TextureFormat textureFormat, out PixelInternalFormat internalFormat, out PixelFormat pixelFormat, out PixelType pixelType)
         {
+            
             switch (textureFormat)
             {
                 case TextureFormat.R8G8B8A8:
-                    return PixelInternalFormat.Rgba;
+                    internalFormat = PixelInternalFormat.Rgba;
+                    pixelFormat = PixelFormat.Rgba;
+                    pixelType = PixelType.UnsignedByte;
+                    break;
                 case TextureFormat.R32f:
-                    return PixelInternalFormat.R32f;
+                    internalFormat = PixelInternalFormat.R32f;
+                    pixelFormat = PixelFormat.Red;
+                    pixelType = PixelType.Float;
+                    break;
+                case TextureFormat.R32ui:
+                    internalFormat = PixelInternalFormat.R32ui;
+                    pixelFormat = PixelFormat.RedInteger;
+                    pixelType = PixelType.UnsignedInt;
+                    break;
+                case TextureFormat.DepthComponent:
+                    internalFormat = PixelInternalFormat.DepthComponent32f;
+                    pixelFormat = PixelFormat.DepthComponent;
+                    pixelType = PixelType.Float;
+                    break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(textureFormat), textureFormat, null);
             }
@@ -41,7 +57,7 @@ namespace TheAvaloniaOpenGL.Resources
             device.BindTexture(textureTarget, Handle);
         }
 
-        protected void GenerateMipmaps()
+        protected internal void GenerateMipmaps()
         {
             BindTexture();
             device.GenerateMipmap(textureTarget);
@@ -51,19 +67,24 @@ namespace TheAvaloniaOpenGL.Resources
         {
             device.BindTexture(textureTarget, 0);
         }
-    
+
+        public static TextureBase[] activeTextures = new TextureBase[32];
+
         public void Activate(int slot)
         {
+            //if (activeTextures[slot] == this)
+            //    return;
+            //activeTextures[slot] = this;
             device.ActiveTextureUnit(slot);
             BindTexture();
         }
 
         public virtual void SetFiltering(FilteringMode mode)
         {
-            device.BindTexture(textureTarget, Handle);
+            BindTexture();
             device.TexParameteri(textureTarget, TextureParameterName.TextureMinFilter, mode == FilteringMode.Nearest ? (int)TextureMinFilter.NearestMipmapNearest : (int)TextureMinFilter.LinearMipmapLinear);
             device.TexParameteri(textureTarget, TextureParameterName.TextureMagFilter, mode == FilteringMode.Nearest ? (int)TextureMagFilter.Nearest : (int)TextureMagFilter.Linear);
-            device.BindTexture(textureTarget, 0);
+            UnbindTexture();
         }   
 
         public virtual void SetWrapping(WrapMode mode)
@@ -87,10 +108,10 @@ namespace TheAvaloniaOpenGL.Resources
                     throw new ArgumentOutOfRangeException(nameof(mode), mode, null);
             }
         
-            device.BindTexture(textureTarget, Handle);
+            BindTexture();
             device.TexParameteri(textureTarget, TextureParameterName.TextureWrapS, (int)openGlMode);
             device.TexParameteri(textureTarget, TextureParameterName.TextureWrapT, (int)openGlMode);
-            device.BindTexture(textureTarget, 0);
+            UnbindTexture();
         }
     
         public void Dispose()

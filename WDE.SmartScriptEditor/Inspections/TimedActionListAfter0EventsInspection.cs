@@ -30,11 +30,11 @@ namespace WDE.SmartScriptEditor.Inspections
                 if (current.Actions.Count == 0)
                     continue;
 
-                if (current.GetParameter(0).Value == 0)
+                if (current.GetParameter(0).Value == 0 && current.Id == script.Events[index - 1].Id)
                 {
                     yield return new InspectionResult()
                     {
-                        Line = current.LineId,
+                        Line = current.VirtualLineId,
                         Severity = DiagnosticSeverity.Info,
                         Message = "This event can be merged with the previous one."
                     };

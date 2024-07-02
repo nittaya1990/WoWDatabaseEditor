@@ -1,0 +1,55 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Style Selector="ModernMenuPanel">
+    <Setter Property="TopRowSize" Value="32" />
+  </Style>
+  <Style Selector="MenuItem.icon-only">
+    <Setter Property="Padding" Value="8" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Panel>
+          <Border Name="PART_LayoutRoot"
+                  Padding="{TemplateBinding Padding}"
+                  Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  ToolTip.Tip="{TemplateBinding Header}"
+                  ToolTip.ShowOnDisabled="True"
+                  CornerRadius="{TemplateBinding CornerRadius}">
+            <ContentControl x:Name="PART_IconPresenter"
+                            IsVisible="False"
+                            Content="{TemplateBinding Icon}"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Margin="0" />
+          </Border>
+          <Popup Name="PART_Popup"
+                 WindowManagerAddShadowHint="False"
+                 Placement="RightEdgeAlignedTop"
+                 HorizontalOffset="{DynamicResource MenuFlyoutSubItemPopupHorizontalOffset}"
+                 IsLightDismissEnabled="False"
+                 IsOpen="{TemplateBinding IsSubMenuOpen, Mode=TwoWay}">
+            <Border Background="{DynamicResource MenuFlyoutPresenterBackground}"
+                    BorderBrush="{DynamicResource MenuFlyoutPresenterBorderBrush}"
+                    BorderThickness="{DynamicResource MenuFlyoutPresenterBorderThemeThickness}"
+                    Padding="{DynamicResource MenuFlyoutPresenterThemePadding}"
+                    MaxWidth="{DynamicResource FlyoutThemeMaxWidth}"
+                    MinHeight="{DynamicResource MenuFlyoutThemeMinHeight}"
+                    HorizontalAlignment="Stretch"
+                    CornerRadius="{DynamicResource OverlayCornerRadius}">
+              <ScrollViewer Theme="{DynamicResource FluentMenuScrollViewer}">
+                <ItemsPresenter Name="PART_ItemsPresenter"
+                                ItemsPanel="{TemplateBinding ItemsPanel}"
+                                Margin="{DynamicResource MenuFlyoutScrollerMargin}"
+                                Grid.IsSharedSizeScope="True" />
+              </ScrollViewer>
+            </Border>
+          </Popup>
+        </Panel>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:disabled /template/ ContentControl#PART_IconPresenter">
+      <Setter Property="Opacity" Value="0.4" />
+    </Style>
+  </Style>
+</Styles>

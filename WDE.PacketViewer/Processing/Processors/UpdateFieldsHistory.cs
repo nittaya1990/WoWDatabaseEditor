@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reactive;
 using System.Runtime.Versioning;
 using WDE.Module.Attributes;
+using WDE.PacketViewer.Utils;
 using WDE.PacketViewer.Utils.IntervalTrees;
 using WowPacketParser.Proto;
 using WowPacketParser.Proto.Processing;
@@ -25,7 +26,7 @@ public interface IUpdateFieldsHistory : IPacketProcessor<Unit>
     IEnumerable<(string key, Interval<int, long> current, Interval<int, long>? previous, Interval<int, long>? next)> IntValues(UniversalGuid guid, int time);
     IEnumerable<(string key, Interval<int, float> current, Interval<int, float>? previous, Interval<int, float>? next)> FloatValues(UniversalGuid guid, int time);
     ICollection<UniversalGuid> AllGuids { get; }
-    void Finalize();
+    void Finish();
 }
 
 [AutoRegister]
@@ -111,7 +112,7 @@ public class UpdateFieldsHistory : PacketProcessor<Unit>, IUpdateFieldsHistory
         return states[guid] = new();
     }
 
-    public void Finalize()
+    public void Finish()
     {
         foreach (var state in states.Values)
         {
@@ -120,15 +121,15 @@ public class UpdateFieldsHistory : PacketProcessor<Unit>, IUpdateFieldsHistory
         }
     }
 
-    public override Unit Process(PacketHolder packet)
+    public override Unit Process(ref readonly PacketHolder packet)
     {
         lastPacketNumber = packet.BaseData.Number;
-        return base.Process(packet);
+        return base.Process(in packet);
     }
 
-    protected override Unit Process(PacketBase basePacket, PacketUpdateObject packet)
+    protected override Unit Process(ref readonly PacketBase basePacket, ref readonly PacketUpdateObject packet)
     {
-        foreach (var create in packet.Created)
+        foreach (ref readonly var create in packet.Created.AsSpan())
         {
             if (SkipGuid(create.Guid))
                 continue;
@@ -139,37 +140,37 @@ public class UpdateFieldsHistory : PacketProcessor<Unit>, IUpdateFieldsHistory
             state.FinalizeState(basePacket.Number - 1);
             state.pendingState = (create.CreateType == CreateObjectType.Spawn ? SniffObjectState.Spawned : SniffObjectState.InRange, basePacket.Number);
             
-            foreach (var intVal in create.Values.Ints)
+            foreach (var intVal in create.Values.Ints())
             {
                 state.pendingIntChanges[intVal.Key] = (intVal.Value, basePacket.Number);
             }
             
-            foreach (var floatVal in create.Values.Floats)
+            foreach (var floatVal in create.Values.Floats())
             {
                 state.pendingFloatChanges[floatVal.Key] = (floatVal.Value, basePacket.Number);
             }
         }
 
-        foreach (var update in packet.Updated)
+        foreach (ref readonly var update in packet.Updated.AsSpan())
         {
             if (SkipGuid(update.Guid))
                 continue;
             
             var state = GetState(update.Guid);
-            foreach (var intVal in update.Values.Ints)
+            foreach (var intVal in update.Values.Ints())
             {
                 state.FinalizeInt(intVal.Key, basePacket.Number - 1);
                 state.pendingIntChanges[intVal.Key] = (intVal.Value, basePacket.Number);
             }
             
-            foreach (var floatVal in update.Values.Floats)
+            foreach (var floatVal in update.Values.Floats())
             {
                 state.FinalizeFloat(floatVal.Key, basePacket.Number - 1);
                 state.pendingFloatChanges[floatVal.Key] = (floatVal.Value, basePacket.Number);
             }
         }
 
-        foreach (var delete in packet.Destroyed)
+        foreach (ref readonly var delete in packet.Destroyed.AsSpan())
         {
             if (SkipGuid(delete.Guid))
                 continue;
@@ -180,7 +181,7 @@ public class UpdateFieldsHistory : PacketProcessor<Unit>, IUpdateFieldsHistory
             state.FinalizeAllPending(basePacket.Number);
         }
         
-        foreach (var delete in packet.OutOfRange)
+        foreach (ref readonly var delete in packet.OutOfRange.AsSpan())
         {
             if (SkipGuid(delete.Guid))
                 continue;
@@ -190,7 +191,7 @@ public class UpdateFieldsHistory : PacketProcessor<Unit>, IUpdateFieldsHistory
             state.pendingState = (SniffObjectState.OutOfRange, basePacket.Number);
             state.FinalizeAllPending(basePacket.Number);
         }
-        return base.Process(basePacket, packet);
+        return base.Process(in basePacket, in packet);
     }
 
     private bool SkipGuid(UniversalGuid guid)

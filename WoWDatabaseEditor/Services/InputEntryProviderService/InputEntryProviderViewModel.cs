@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Windows.Input;
 using Prism.Commands;
 using WDE.Common.Managers;
 using WDE.MVVM;
@@ -9,12 +10,13 @@ namespace WoWDatabaseEditorCore.Services.InputEntryProviderService
     {
         private T entry;
 
-        public InputEntryProviderViewModel(string title, string description, T defaultValue, Func<T, bool>? isValid = null)
+        public InputEntryProviderViewModel(string title, string description, T defaultValue, Func<T, bool>? isValid = null, bool multiline = false)
         {
             Description = description;
+            Multiline = multiline;
             entry = defaultValue;
             Title = title;
-            Save = new DelegateCommand(() =>
+            Accept = Save = new DelegateCommand(() =>
             {
                 CloseOk?.Invoke();
             }, () => isValid == null || isValid(Entry)).ObservesProperty(() => Entry);
@@ -25,6 +27,7 @@ namespace WoWDatabaseEditorCore.Services.InputEntryProviderService
         }
 
         public string Description { get; }
+        public bool Multiline { get; }
 
         public T Entry
         {
@@ -33,12 +36,14 @@ namespace WoWDatabaseEditorCore.Services.InputEntryProviderService
         }
 
         public DelegateCommand Save { get; }
-        public DelegateCommand Cancel { get; }
+        public ICommand Accept { get; }
+        public ICommand Cancel { get; }
 
         public int DesiredWidth { get; } = 460;
         public int DesiredHeight { get; } = 230;
         public string Title { get; }
-        public bool Resizeable { get; } = false;
+        public bool Resizeable { get; } = true;
+
         public event Action? CloseCancel;
         public event Action? CloseOk;
     }

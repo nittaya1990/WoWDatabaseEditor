@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Newtonsoft.Json;
+using WDE.Common;
 using WDE.Common.Managers;
 using WDE.Common.Services;
 using WDE.Module.Attributes;
@@ -8,17 +9,18 @@ using WDE.Module.Attributes;
 namespace WoWDatabaseEditorCore.Services.UserSettingsService
 {
     [SingleInstance]
-    [AutoRegister]
+    [AutoRegister(Platforms.NonBrowser)]
     public class UserSettings : IUserSettings
     {
         private readonly IFileSystem fileSystem;
-        private readonly IStatusBar statusBar;
+        private readonly Lazy<IStatusBar> statusBar;
         private readonly string basePath;
         private readonly JsonSerializer json;
         
-        public UserSettings(IFileSystem fileSystem, IStatusBar statusBar)
+        public UserSettings(IFileSystem fileSystem, Lazy<IStatusBar> statusBar)
         {
             json = new() {TypeNameHandling = TypeNameHandling.Auto, Formatting = Formatting.Indented};
+            json.Converters.Add(new DatabaseKeyConverter());
             this.fileSystem = fileSystem;
             this.statusBar = statusBar;
             basePath = "~";
@@ -44,7 +46,8 @@ namespace WoWDatabaseEditorCore.Services.UserSettingsService
             }
             catch (Exception e)
             {
-                statusBar.PublishNotification(new PlainNotification(NotificationType.Error, "Error while loading settings: " + e));
+                statusBar.Value.PublishNotification(new PlainNotification(NotificationType.Error, "Error while loading settings: " + e));
+                LOG.LogError(e, message: "Error while loading settings: " + fileSystem?.ResolvePhysicalPath(settingsFile)?.FullName);
                 return defaultValue;
             }
         }
@@ -60,7 +63,7 @@ namespace WoWDatabaseEditorCore.Services.UserSettingsService
             }
             catch (Exception e)
             {
-                statusBar.PublishNotification(new PlainNotification(NotificationType.Error, "Error while saving settings: " + e));
+                statusBar.Value.PublishNotification(new PlainNotification(NotificationType.Error, "Error while saving settings: " + e));
             }
         }
     }

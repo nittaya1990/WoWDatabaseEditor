@@ -1,7 +1,10 @@
-﻿using System.Linq;
+﻿using System;
+using System.Linq;
+using System.Threading.Tasks;
 using WDE.Common.CoreVersion;
 using WDE.Common.Database;
 using WDE.Common.Solution;
+using WDE.SmartScriptEditor.Editor;
 using WDE.SmartScriptEditor.Editor.UserControls;
 using WDE.SmartScriptEditor.Models;
 using WDE.SqlQueryGenerator;
@@ -18,7 +21,7 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
         private readonly IConditionQueryGenerator conditionQueryGenerator;
         private readonly ISolutionItemNameRegistry nameProvider;
 
-        private string SmartScriptTableName => currentCoreVersion.Current.SmartScriptFeatures.TableName;
+        private DatabaseTable SmartScriptTableName => currentCoreVersion.Current.SmartScriptFeatures.TableName;
         
         public ExporterHelper(SmartScript script, 
             IDatabaseProvider databaseProvider,
@@ -37,15 +40,15 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
             this.nameProvider = nameProvider;
         }
 
-        public IQuery GetSql()
+        public async Task<IQuery> GetSql()
         {
-            var query = Queries.BeginTransaction();
+            var query = Queries.BeginTransaction(DataDatabaseType.World);
             query.Comment(nameProvider.GetName(item));
             query.DefineVariable("ENTRY", script.EntryOrGuid);
             var (serializedScript, serializedConditions) = scriptExporter.ToDatabaseCompatibleSmartScript(script);
+            await BuildUpdate(query);
             BuildDelete(query, serializedScript);
-            BuildUpdate(query);
-            BuildInsert(query, serializedScript, serializedConditions);
+            BuildInsert(query, serializedScript, serializedConditions ?? Array.Empty<IConditionLine>());
             return query.Close();
         }
         
@@ -83,65 +86,112 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                 else
                     entryOrGuid = query.Raw(line.EntryOrGuid.ToString());
             }
-            return new
+
+            var difficulties = line.Difficulties.HasValue ? string.Join(",", line.Difficulties) : "";
+            if (currentCoreVersion.Current.SmartScriptFeatures.DifficultyInSeparateColumn)
             {
-                entryorguid = entryOrGuid,
-                source_type = (int) line.ScriptSourceType,
-                id = line.Id,
-                link = line.Link,
+                return new
+                {
+                    entryorguid = entryOrGuid,
+                    source_type = (int) line.ScriptSourceType,
+                    id = line.Id,
+                    link = line.Link,
+                    Difficulties = difficulties,
 
-                event_type = line.EventType,
-                event_phase_mask = line.EventPhaseMask,
-                event_chance = line.EventChance,
-                event_flags = line.EventFlags,
-                event_param1 = line.EventParam1,
-                event_param2 = line.EventParam2,
-                event_param3 = line.EventParam3,
-                event_param4 = line.EventParam4,
+                    event_type = line.EventType,
+                    event_phase_mask = line.EventPhaseMask,
+                    event_chance = line.EventChance,
+                    event_flags = line.EventFlags,
+                    event_param1 = line.EventParam1,
+                    event_param2 = line.EventParam2,
+                    event_param3 = line.EventParam3,
+                    event_param4 = line.EventParam4,
 
-                action_type = line.ActionType,
-                action_param1 = line.ActionParam1,
-                action_param2 = line.ActionParam2,
-                action_param3 = line.ActionParam3,
-                action_param4 = line.ActionParam4,
-                action_param5 = line.ActionParam5,
-                action_param6 = line.ActionParam6,
+                    action_type = line.ActionType,
+                    action_param1 = line.ActionParam1,
+                    action_param2 = line.ActionParam2,
+                    action_param3 = line.ActionParam3,
+                    action_param4 = line.ActionParam4,
+                    action_param5 = line.ActionParam5,
+                    action_param6 = line.ActionParam6,
 
-                target_type = line.TargetType,
-                target_param1 = line.TargetParam1,
-                target_param2 = line.TargetParam2,
-                target_param3 = line.TargetParam3,
+                    target_type = line.TargetType,
+                    target_param1 = line.TargetParam1,
+                    target_param2 = line.TargetParam2,
+                    target_param3 = line.TargetParam3,
 
-                target_x = line.TargetX,
-                target_y = line.TargetY,
-                target_z = line.TargetZ,
-                target_o = line.TargetO,
+                    target_x = line.TargetX,
+                    target_y = line.TargetY,
+                    target_z = line.TargetZ,
+                    target_o = line.TargetO,
 
-                comment = line.Comment
-            };
+                    comment = line.Comment
+                };
+            }
+            else
+            {
+                return new
+                {
+                    entryorguid = entryOrGuid,
+                    source_type = (int) line.ScriptSourceType,
+                    id = line.Id,
+                    link = line.Link,
+
+                    event_type = line.EventType,
+                    event_phase_mask = line.EventPhaseMask,
+                    event_chance = line.EventChance,
+                    event_flags = line.EventFlags,
+                    event_param1 = line.EventParam1,
+                    event_param2 = line.EventParam2,
+                    event_param3 = line.EventParam3,
+                    event_param4 = line.EventParam4,
+
+                    action_type = line.ActionType,
+                    action_param1 = line.ActionParam1,
+                    action_param2 = line.ActionParam2,
+                    action_param3 = line.ActionParam3,
+                    action_param4 = line.ActionParam4,
+                    action_param5 = line.ActionParam5,
+                    action_param6 = line.ActionParam6,
+
+                    target_type = line.TargetType,
+                    target_param1 = line.TargetParam1,
+                    target_param2 = line.TargetParam2,
+                    target_param3 = line.TargetParam3,
+
+                    target_x = line.TargetX,
+                    target_y = line.TargetY,
+                    target_z = line.TargetZ,
+                    target_o = line.TargetO,
+
+                    comment = line.Comment
+                };   
+            }
         }
 
-        private void BuildUpdate(IMultiQuery query)
+        private async Task BuildUpdate(IMultiQuery query)
         {
             switch (script.SourceType)
             {
                 case SmartScriptType.Creature:
                 {
                     uint? entry;
-                    if (script.EntryOrGuid >= 0)
+                    if (script.Entry.HasValue)
+                        entry = script.Entry.Value;
+                    else if (script.EntryOrGuid >= 0)
                         entry = (uint)script.EntryOrGuid;
                     else
-                        entry = databaseProvider.GetCreatureByGuid((uint)-script.EntryOrGuid)?.Entry;
+                        entry = (await databaseProvider.GetCreatureByGuidAsync(0, (uint)-script.EntryOrGuid))?.Entry;
 
                     if (entry.HasValue)
                     {
                         var condition = query
-                            .Table("creature_template")
+                            .Table(DatabaseTable.WorldTable("creature_template"))
                             .Where(t => t.Column<int>("entry") == t.Variable<int>("ENTRY"));
                         
                         if (script.EntryOrGuid != entry.Value)
                             condition = query
-                                .Table("creature_template")
+                                .Table(DatabaseTable.WorldTable("creature_template"))
                                 .Where(t => t.Column<uint>("entry") == entry.Value);
                         
                         var update = condition
@@ -159,20 +209,22 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                 case SmartScriptType.GameObject:
                 {
                     uint? entry;
-                    if (script.EntryOrGuid >= 0)
+                    if (script.Entry.HasValue)
+                        entry = script.Entry.Value;
+                    else if (script.EntryOrGuid >= 0)
                         entry = (uint)script.EntryOrGuid;
                     else
-                        entry = databaseProvider.GetCreatureByGuid((uint)-script.EntryOrGuid)?.Entry;
+                        entry = (await databaseProvider.GetGameObjectByGuidAsync(0, (uint)-script.EntryOrGuid))?.Entry;
 
                     if (entry.HasValue)
                     {
                         var condition = query
-                            .Table("gameobject_template")
+                            .Table(DatabaseTable.WorldTable("gameobject_template"))
                             .Where(t => t.Column<int>("entry") == t.Variable<int>("ENTRY"));
                         
                         if (script.EntryOrGuid != entry.Value)
                             condition = query
-                                .Table("gameobject_template")
+                                .Table(DatabaseTable.WorldTable("gameobject_template"))
                                 .Where(t => t.Column<uint>("entry") == entry.Value);
                         condition
                             .Set("AIName", currentCoreVersion.Current.SmartScriptFeatures.GameObjectSmartAiName)
@@ -183,12 +235,12 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                     break;
                 }
                 case SmartScriptType.Quest:
-                    query.Table("quest_template_addon")
+                    query.Table(DatabaseTable.WorldTable("quest_template_addon"))
                         .InsertIgnore(new
                         {
                             ID = query.Variable("ENTRY")
                         });
-                    query.Table("quest_template_addon")
+                    query.Table(DatabaseTable.WorldTable("quest_template_addon"))
                         .Where(r => r.Column<int>("ID") == r.Variable<int>("ENTRY"))
                         .Set("ScriptName", "SmartQuest")
                         .Update();
@@ -203,10 +255,10 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                     query.Comment("TrinityCore doesn't support Smart Cinematic Script");
                     break;
                 case SmartScriptType.AreaTrigger:
-                    query.Table("areatrigger_scripts")
+                    query.Table(DatabaseTable.WorldTable("areatrigger_scripts"))
                         .Where(r => r.Column<int>("entry") == r.Variable<int>("ENTRY"))
                         .Delete();
-                    query.Table("areatrigger_scripts")
+                    query.Table(DatabaseTable.WorldTable("areatrigger_scripts"))
                         .Insert(new
                         {
                             entry = query.Variable("ENTRY"),
@@ -214,15 +266,21 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                         });
                     break;
                 case SmartScriptType.AreaTriggerEntityServerSide:
-                    query.Table("areatrigger_template")
+                    query.Table(DatabaseTable.WorldTable("areatrigger_template"))
                         .Where(r => r.Column<int>("Id") == r.Variable<int>("ENTRY") && r.Column<bool>("IsServerSide"))
                         .Set("ScriptName", "SmartAreaTriggerAI")
                         .Update();
                     break;
                 case SmartScriptType.AreaTriggerEntity:
-                    query.Table("areatrigger_template")
+                    query.Table(DatabaseTable.WorldTable("areatrigger_template"))
                         .Where(r => r.Column<int>("Id") == r.Variable<int>("ENTRY") && !r.Column<bool>("IsServerSide"))
                         .Set("ScriptName", "SmartAreaTriggerAI")
+                        .Update();
+                    break;
+                case SmartScriptType.Scene:
+                    query.Table(DatabaseTable.WorldTable("scene_template"))
+                        .Where(r => r.Column<int>("SceneId") == r.Variable<int>("ENTRY"))
+                        .Set("ScriptName", "SmartScene")
                         .Update();
                     break;
             }

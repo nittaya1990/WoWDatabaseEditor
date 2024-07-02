@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
 using Avalonia.Data;
 using AvaloniaStyles.Controls;
 using WDE.Common.Types;
@@ -10,17 +11,26 @@ namespace WDE.Common.Avalonia.Utils
 {
     public class DataGridColumns
     {
-        public static readonly AvaloniaProperty ColumnsSourceProperty = AvaloniaProperty.RegisterAttached<DataGridColumns, DataGrid, IList<ColumnDescriptor>?>("ColumnsSource",
-            null, coerce: ColumnsSourceChanged);
+        public static readonly AvaloniaProperty<IReadOnlyList<ColumnDescriptor>> ColumnsSourceProperty =
+            AvaloniaProperty.RegisterAttached<DataGridColumns, Control, IReadOnlyList<ColumnDescriptor>>("ColumnsSource",
+            new List<ColumnDescriptor>(), coerce: ColumnsSourceChanged);
 
-        public static List<ColumnDescriptor> GetColumnsSource(IControl obj) => (List<ColumnDescriptor>)obj.GetValue(ColumnsSourceProperty);
+        public static IReadOnlyList<ColumnDescriptor> GetColumnsSource(Control obj) => (IReadOnlyList<ColumnDescriptor>?)obj.GetValue(ColumnsSourceProperty) ?? new List<ColumnDescriptor>();
 
-        public static void SetColumnsSource(IControl obj, List<ColumnDescriptor> value) => obj.SetValue(ColumnsSourceProperty, value);
+        public static void SetColumnsSource(Control obj, IReadOnlyList<ColumnDescriptor> value) => obj.SetValue(ColumnsSourceProperty, value);
 
-        private static IList<ColumnDescriptor>? ColumnsSourceChanged(IAvaloniaObject o, IList<ColumnDescriptor>? arg2)
+        static DataGridColumns()
+        {
+            ColumnsSourceProperty.Changed.AddClassHandler<Control>((c, e) =>
+            {
+                ColumnsSourceChanged(c, (IReadOnlyList<ColumnDescriptor>)e.NewValue!);
+            });
+        }
+        
+        private static IReadOnlyList<ColumnDescriptor> ColumnsSourceChanged(AvaloniaObject o, IReadOnlyList<ColumnDescriptor> arg2)
         {
             if (arg2 == null)
-                return arg2;
+                return new List<ColumnDescriptor>();// arg2;
             
             if (o is DataGrid dataGrid)
             {
@@ -34,20 +44,25 @@ namespace WDE.Common.Avalonia.Utils
                         Content = col.HeaderText
                     };
                     column.IsReadOnly = !col.CheckboxMember;
-                    column.Binding = new Binding(col.DisplayMember);
+                    var displayMember = col.DisplayMember;
+                    column.Binding = new Binding(displayMember);
                     dataGrid.Columns.Add(column);
                 }
             }
-            else if (o is GridView gridView)
+            else if (o is GridView || o is VirtualizedGridView)
             {
                 var columns = arg2.Select(col => new GridColumnDefinition()
                 {
                     Name = col.HeaderText,
                     Property = col.DisplayMember,
                     PreferedWidth = (int) (col.PreferredWidth ?? 100),
-                    Checkable = col.CheckboxMember
+                    Checkable = col.CheckboxMember,
+                    DataTemplate = col.DataTemplate as IDataTemplate
                 }).ToList();
-                gridView.Columns = columns;
+                if (o is GridView gridView)
+                    gridView.Columns = columns;
+                else if (o is VirtualizedGridView virtualizedGridView)
+                    virtualizedGridView.Columns = columns;
             }
 
             return arg2;

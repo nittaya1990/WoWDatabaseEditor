@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using WDE.Common.Database;
 using WDE.Common.Parameters;
+using WDE.Common.Services;
 using WDE.Common.Services.MessageBox;
 using WDE.DatabaseEditors.Data.Interfaces;
 using WDE.DatabaseEditors.Data.Structs;
@@ -30,138 +32,139 @@ namespace WDE.DatabaseEditors.Data
             this.databaseFieldFactory = databaseFieldFactory;
         }
         
-        public DatabaseEntity CreateEmptyEntity(DatabaseTableDefinitionJson definition, uint key)
+        public DatabaseEntity CreateEmptyEntity(DatabaseTableDefinitionJson definition, DatabaseKey key, bool phantomEntity)
         {
-            Dictionary<string, IDatabaseField> columns = new();
+            Dictionary<ColumnFullName, IDatabaseField> columns = new(ColumnFullNameIgnoreCaseComparer.Instance);
+
+            if (!phantomEntity && key.Count != definition.GroupByKeys.Count)
+                throw new Exception($"Trying to create entity with a partial key! (expected: {definition.GroupByKeys.Count} elements in key, got {key.Count})");
             
             foreach (var column in definition.Groups.SelectMany(t => t.Fields)
+                .Where(x => x.IsActualDatabaseColumn) // todo: not sure about IsCondition? this method used to create fields with IsCondition even though it makes no sense
                 .Distinct(
                     EqualityComparerFactory.Create<DatabaseColumnJson>(
                         f => f.DbColumnName.GetHashCode(),
                         (a, b) => a!.DbColumnName.Equals(b!.DbColumnName))))
             {
-                IValueHolder valueHolder;
-                var type = column.ValueType;
+                columns[column.DbColumnFullName] = databaseFieldFactory.CreateField(column, column.Default);
+            }
 
-                if (parameterFactory.IsRegisteredLong(type))
-                    type = "uint";
-                else if (parameterFactory.IsRegisteredString(type))
-                    type = "string";
-                else if (type.EndsWith("Parameter"))
-                    type = "uint";
-                
-                if (type == "float")
+            Debug.Assert(phantomEntity == key.IsPhantomKey);
+            if (!phantomEntity)
+            {
+                int keyIndex = 0;
+                foreach (var name in definition.GroupByKeys)
                 {
-                    valueHolder = new ValueHolder<float>(column.Default is float f ? f : 0.0f, column.CanBeNull && column.Default == null);
-                }
-                else if (type == "int" || type == "uint")
-                {
-                    if (column.DbColumnName == definition.TablePrimaryKeyColumnName)
-                        valueHolder = new ValueHolder<long>(key, false);
-                    else
-                        valueHolder = new ValueHolder<long>(column.Default is long f ? f : 0, column.CanBeNull && column.Default == null);
-                }
-                else
-                    valueHolder = new ValueHolder<string>(column.Default is string f ? f : "", column.CanBeNull && column.Default == null);
-
-
-                columns[column.DbColumnName] = databaseFieldFactory.CreateField(column.DbColumnName, valueHolder);
+                    if (columns[name] is not DatabaseField<long> field)
+                        throw new Exception("Only long keys are supported now");
+                    field.Current.Value = key[keyIndex++];
+                }   
             }
 
             return new DatabaseEntity(false, key, columns, null);
         }
         
         public IDatabaseTableData? CreateDatabaseTable(DatabaseTableDefinitionJson tableDefinition,
-            uint[] keys,
-            IList<Dictionary<string, (System.Type type, object value)>> fieldsFromDb)
+            DatabaseKey[]? keys,
+            IDatabaseSelectResult fieldsFromDb,
+            IReadOnlyList<ColumnFullName> selectedColumns,
+            IList<IConditionLine>[]? conditionsPerRow)
         {
-            HashSet<uint> providedKeys = new();
+            HashSet<DatabaseKey> providedKeys = new();
 
-            IList<IConditionLine>? conditions = null;
             List<DatabaseEntity> rows = new();
-            foreach (var entity in fieldsFromDb)
+            foreach (var rowIndex in fieldsFromDb)
             {
-                uint? key = null;
-                Dictionary<string, IDatabaseField> columns = new();
-                foreach (var column in entity)
+                DatabaseKey? key = null;
+                Dictionary<ColumnFullName, IDatabaseField> columns = new(ColumnFullNameIgnoreCaseComparer.Instance);
+                for (int columnIndex = 0; columnIndex < fieldsFromDb.Columns; ++columnIndex)
                 {
+                    var columnType = fieldsFromDb.ColumnType(columnIndex);
+
+                    var isNull = fieldsFromDb.IsNull(rowIndex, columnIndex);
+                    var value = fieldsFromDb.Value(rowIndex, columnIndex);
                     IValueHolder valueHolder = null!;
-                    if (column.Value.type == typeof(string))
+                    if (columnType == typeof(string))
                     {
-                        string? val = column.Value.value as string ?? null;
-                        valueHolder = new ValueHolder<string>(val, column.Value.value is DBNull);
+                        string? val = fieldsFromDb.Value<string>(rowIndex, columnIndex);
+                        valueHolder = new ValueHolder<string>(val, isNull);
                     }
-                    else if (column.Value.type == typeof(float))
+                    else if (columnType == typeof(float))
                     {
-                        valueHolder = new ValueHolder<float>(column.Value.value as float? ?? 0, column.Value.value is DBNull);
+                        valueHolder = new ValueHolder<float>(value as float? ?? 0, isNull);
                     }
-                    else if (column.Value.type == typeof(uint))
+                    else if (columnType == typeof(decimal))
                     {
-                        valueHolder = new ValueHolder<long>(column.Value.value as uint? ?? 0, column.Value.value is DBNull);
+                        valueHolder = new ValueHolder<float>(value as float? ?? 0, isNull);
                     }
-                    else if (column.Value.type == typeof(int))
+                    else if (columnType == typeof(uint))
                     {
-                        valueHolder = new ValueHolder<long>(column.Value.value as int? ?? 0, column.Value.value is DBNull);
+                        valueHolder = new ValueHolder<long>(value as uint? ?? 0, isNull);
                     }
-                    else if (column.Value.type == typeof(long))
+                    else if (columnType == typeof(int))
                     {
-                        valueHolder = new ValueHolder<long>(column.Value.value as long? ?? 0, column.Value.value is DBNull);
+                        valueHolder = new ValueHolder<long>(value as int? ?? 0, isNull);
                     }
-                    else if (column.Value.type == typeof(ulong))
+                    else if (columnType == typeof(long))
                     {
-                        valueHolder = new ValueHolder<long>((long)(column.Value.value as ulong? ?? 0), column.Value.value is DBNull);
+                        valueHolder = new ValueHolder<long>(value as long? ?? 0, isNull);
                     }
-                    else if (column.Value.type == typeof(byte))
+                    else if (columnType == typeof(ulong))
                     {
-                        valueHolder = new ValueHolder<long>(column.Value.value as byte? ?? 0, column.Value.value is DBNull);
+                        valueHolder = new ValueHolder<long>((long)(value as ulong? ?? 0), isNull);
                     }
-                    else if (column.Value.type == typeof(sbyte))
+                    else if (columnType == typeof(byte))
                     {
-                        valueHolder = new ValueHolder<long>(column.Value.value as sbyte? ?? 0, column.Value.value is DBNull);
+                        valueHolder = new ValueHolder<long>(value as byte? ?? 0, isNull);
                     }
-                    else if (column.Value.type == typeof(ushort))
+                    else if (columnType == typeof(sbyte))
                     {
-                        valueHolder = new ValueHolder<long>(column.Value.value as ushort? ?? 0, column.Value.value is DBNull);
+                        valueHolder = new ValueHolder<long>(value as sbyte? ?? 0, isNull);
                     }
-                    else if (column.Value.type == typeof(short))
+                    else if (columnType == typeof(ushort))
                     {
-                        valueHolder = new ValueHolder<long>(column.Value.value as short? ?? 0, column.Value.value is DBNull);
+                        valueHolder = new ValueHolder<long>(value as ushort? ?? 0, isNull);
                     }
-                    else if (column.Value.type == typeof(bool))
+                    else if (columnType == typeof(short))
                     {
-                        valueHolder = new ValueHolder<long>(column.Value.value is DBNull ? 0 : ((bool)column.Value.value ? 1 : 0), column.Value.value is DBNull);
+                        valueHolder = new ValueHolder<long>(value as short? ?? 0, isNull);
                     }
-                    else if (column.Value.type == typeof(IList<IConditionLine>))
+                    else if (columnType == typeof(bool))
                     {
-                        conditions = ((IList<IConditionLine>)column.Value.value);
-                        continue;
+                        valueHolder = new ValueHolder<long>(isNull ? 0 : ((bool)value! ? 1 : 0), isNull);
+                    }
+                    else if (columnType == typeof(DateTime))
+                    {
+                        valueHolder = new ValueHolder<long>(isNull ? default : ((DateTimeOffset)(DateTime)value!).ToUnixTimeSeconds(), isNull);
                     }
                     else
                     {
-                        throw new NotImplementedException("Unknown column type " + column.Value.type);
+                        throw new NotImplementedException("Unknown column type " + columnType);
                     }
 
-                    if (column.Key == tableDefinition.TablePrimaryKeyColumnName)
-                    {
-                        if (valueHolder is ValueHolder<long> longKey)
-                        {
-                            key = (uint)longKey.Value;
-                            providedKeys.Add(key.Value);
-                        }
-                    }
-                    
-                    columns[column.Key] = databaseFieldFactory.CreateField(column.Key, valueHolder);
+                    columns[selectedColumns[columnIndex]] = databaseFieldFactory.CreateField(selectedColumns[columnIndex], valueHolder);
                 }
+
+                key = new DatabaseKey(tableDefinition.GroupByKeys.Select(key =>
+                {
+                    if (columns[key] is DatabaseField<long> field)
+                        return field.Current.Value;
+                    throw new Exception("");
+                }));
                 if (key.HasValue)
-                    rows.Add(new DatabaseEntity(true, key.Value, columns, conditions?.ToList<ICondition>()));
+                {
+                    rows.Add(new DatabaseEntity(true, key.Value, columns, conditionsPerRow?[rowIndex]?.ToList<ICondition>()));
+                    providedKeys.Add(key.Value);
+                }
             }
 
-            if (!tableDefinition.IsMultiRecord)
+            if (tableDefinition.RecordMode == RecordMode.Template)
             {
+                Debug.Assert(keys != null);
                 foreach (var key in keys)
                 {
                     if (!providedKeys.Contains(key))
-                        rows.Add(CreateEmptyEntity(tableDefinition, key));
+                        rows.Add(CreateEmptyEntity(tableDefinition, key, false));
                 }   
             }
 

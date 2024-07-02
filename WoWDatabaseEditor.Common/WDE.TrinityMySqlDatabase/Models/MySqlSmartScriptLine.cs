@@ -1,13 +1,16 @@
 ﻿using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using LinqToDB.Mapping;
 using WDE.Common.Database;
+using WDE.Common.Utils;
 
 namespace WDE.TrinityMySqlDatabase.Models
 {
     [ExcludeFromCodeCoverage]
-    [Table(Name = "smart_scripts")]
-    public class MySqlSmartScriptLine : ISmartScriptLine
+    public abstract class BaseSqlSmartScriptLine : ISmartScriptLine
     {
+        public uint? CreatureEntry => null;
+        
         [Column(Name = "entryorguid")]
         [PrimaryKey]
         public int EntryOrGuid { get; set; }
@@ -23,6 +26,8 @@ namespace WDE.TrinityMySqlDatabase.Models
         [Column(Name = "link")]
         public int Link { get; set; }
 
+        public abstract SmallReadOnlyList<uint>? Difficulties { get; }
+
         [Column(Name = "event_type")]
         public int EventType { get; set; }
 
@@ -32,53 +37,76 @@ namespace WDE.TrinityMySqlDatabase.Models
         [Column(Name = "event_chance")]
         public int EventChance { get; set; }
 
+        public int TimerId { get; set; }
+
         [Column(Name = "event_flags")]
         public int EventFlags { get; set; }
 
         [Column(Name = "event_param1")]
-        public int EventParam1 { get; set; }
+        public long EventParam1 { get; set; }
 
         [Column(Name = "event_param2")]
-        public int EventParam2 { get; set; }
+        public long EventParam2 { get; set; }
 
         [Column(Name = "event_param3")]
-        public int EventParam3 { get; set; }
+        public long EventParam3 { get; set; }
 
         [Column(Name = "event_param4")]
-        public int EventParam4 { get; set; }
+        public long EventParam4 { get; set; }
+
+        public long EventParam5 { get; set; }
+
+        public long EventParam6 => 0;
+
+        public long EventParam7 => 0;
+
+        public long EventParam8 => 0;
+
+        public float EventFloatParam1 { get; set; }
+        public float EventFloatParam2 { get; set; }
+        public string? EventStringParam { get; set; }
 
         [Column(Name = "action_type")]
         public int ActionType { get; set; }
 
         [Column(Name = "action_param1")]
-        public int ActionParam1 { get; set; }
+        public long ActionParam1 { get; set; }
 
         [Column(Name = "action_param2")]
-        public int ActionParam2 { get; set; }
+        public long ActionParam2 { get; set; }
 
         [Column(Name = "action_param3")]
-        public int ActionParam3 { get; set; }
+        public long ActionParam3 { get; set; }
 
         [Column(Name = "action_param4")]
-        public int ActionParam4 { get; set; }
+        public long ActionParam4 { get; set; }
 
         [Column(Name = "action_param5")]
-        public int ActionParam5 { get; set; }
+        public long ActionParam5 { get; set; }
 
         [Column(Name = "action_param6")]
-        public int ActionParam6 { get; set; }
+        public long ActionParam6 { get; set; }
+
+        public long ActionParam7 { get; set; }
+
+        public long ActionParam8 => 0;
+
+        public float ActionFloatParam1 { get; set; }
+        public float ActionFloatParam2 { get; set; }
+
+        public float SourceO { get; set; }
 
         [Column(Name = "target_type")]
         public int TargetType { get; set; }
 
         [Column(Name = "target_param1")]
-        public int TargetParam1 { get; set; }
+        public long TargetParam1 { get; set; }
 
         [Column(Name = "target_param2")]
-        public int TargetParam2 { get; set; }
+        public long TargetParam2 { get; set; }
 
         [Column(Name = "target_param3")]
-        public int TargetParam3 { get; set; }
+        public long TargetParam3 { get; set; }
 
         [Column(Name = "target_x")]
         public float TargetX { get; set; }
@@ -95,9 +123,9 @@ namespace WDE.TrinityMySqlDatabase.Models
         [Column]
         public string Comment { get; set; } = "";
 
-        public MySqlSmartScriptLine() { }
+        public BaseSqlSmartScriptLine() { }
 
-        public MySqlSmartScriptLine(ISmartScriptLine line)
+        public BaseSqlSmartScriptLine(ISmartScriptLine line)
         {
             EntryOrGuid = line.EntryOrGuid;
             ScriptSourceType = line.ScriptSourceType;
@@ -144,19 +172,19 @@ namespace WDE.TrinityMySqlDatabase.Models
             set { }
         }
 
-        public int SourceParam1
+        public long SourceParam1
         {
             get => 0;
             set { }
         }
 
-        public int SourceParam2
+        public long SourceParam2
         {
             get => 0;
             set { }
         }
 
-        public int SourceParam3
+        public long SourceParam3
         {
             get => 0;
             set { }
@@ -167,6 +195,10 @@ namespace WDE.TrinityMySqlDatabase.Models
             get => 0;
             set { }
         }
+
+        public float SourceX { get; set; }
+        public float SourceY { get; set; }
+        public float SourceZ { get; set; }
 
         public int TargetConditionId
         {
@@ -185,5 +217,31 @@ namespace WDE.TrinityMySqlDatabase.Models
             get => 0;
             set { }
         }
+    }
+    
+    [Table(Name = "smart_scripts")]
+    public class MasterMySqlSmartScriptLine : BaseSqlSmartScriptLine
+    {
+        [Column(Name = "Difficulties")]
+        public string difficulties { get; set; } = "";
+
+        public override SmallReadOnlyList<uint>? Difficulties
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(difficulties))
+                    return null;
+
+                return new SmallReadOnlyList<uint>(difficulties.Split(',')
+                    .Where(x => uint.TryParse(x, out _))
+                    .Select(uint.Parse));
+            }
+        }
+    }
+    
+    [Table(Name = "smart_scripts")]
+    public class MySqlSmartScriptLine : BaseSqlSmartScriptLine
+    {
+        public override SmallReadOnlyList<uint>? Difficulties => default;
     }
 }

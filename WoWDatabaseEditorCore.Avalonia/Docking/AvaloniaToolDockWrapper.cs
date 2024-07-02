@@ -1,5 +1,5 @@
 ﻿using System;
-using Dock.Model.ReactiveUI.Controls;
+using Dock.Model.Mvvm.Controls;
 using WDE.Common.Managers;
 using WDE.Common.Windows;
 using ITool = WDE.Common.Windows.ITool;
@@ -18,13 +18,16 @@ namespace WoWDatabaseEditorCore.Avalonia.Docking
             Id = tool.UniqueId;
             Title = tool.Title;
             ViewModel = tool;
-            CanFloat = false;
-            CanPin = false;
+            CanFloat = true;
+            CanPin = true;
             CanClose = true;
         }
 
         public override bool OnClose()
         {
+            if (!ViewModel.CanClose())
+                return false;
+            
             IsClosed = true;
             ViewModel.Visibility = false;
             return true;

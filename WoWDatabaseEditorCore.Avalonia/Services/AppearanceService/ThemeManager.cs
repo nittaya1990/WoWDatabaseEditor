@@ -1,9 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using Avalonia;
+using Avalonia.Styling;
 using AvaloniaStyles;
+using AvaloniaStyles.Utils;
 using WDE.Common.Factories.Http;
 using WDE.Common.Managers;
+using WDE.Common.Utils;
 using WDE.Module.Attributes;
 using WoWDatabaseEditorCore.Avalonia.Services.AppearanceService.Providers;
 
@@ -20,6 +24,11 @@ namespace WoWDatabaseEditorCore.Avalonia.Services.AppearanceService
             var settings = themeSettings.GetSettings();
             string currentThemeName = settings.Name;
 
+            if (currentThemeName == "Windows10Dark")
+                currentThemeName = "DarkWindows11";
+            else if (currentThemeName == "Windows10Light")
+                currentThemeName = "LightWindows11";
+            
             Theme theme = new(currentThemeName);
 
             if (!IsValidTheme(theme))
@@ -28,6 +37,8 @@ namespace WoWDatabaseEditorCore.Avalonia.Services.AppearanceService
             SetTheme(theme);
             if (Enum.TryParse<SystemThemeOptions>(theme.Name, out var t))
                 AvaloniaThemeStyle.Theme = t;
+            AvaloniaThemeStyle.AccentHue = new HslDiff(settings.Hue+AvaloniaThemeStyle.BaseHue, settings.Saturation, settings.Lightness);
+            
             SystemTheme.CustomScalingValue = settings.UseCustomScaling ? Math.Clamp(settings.CustomScaling, 0.5, 4) : null;
         }
 

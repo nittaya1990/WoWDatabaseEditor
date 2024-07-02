@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Input;
 using DynamicData.Binding;
+using Microsoft.Extensions.Logging;
 using Prism.Commands;
 using WDE.Common.Managers;
 using WDE.Common.Utils;
@@ -11,11 +13,13 @@ using WDE.Conditions.Data;
 using WDE.MVVM;
 using WDE.MVVM.Observable;
 using WDE.SmartScriptEditor.Data;
+using WDE.SmartScriptEditor.Services;
 
 namespace WDE.SmartScriptEditor.Editor.ViewModels
 {
     public class SmartSelectViewModel : ObservableBase, IDialog
     {
+        private readonly IFavouriteSmartsService favourites;
         private bool anyVisible => visibleCount > 0;
         private int visibleCount = 0;
         private CancellationTokenSource? currentToken;
@@ -24,11 +28,14 @@ namespace WDE.SmartScriptEditor.Editor.ViewModels
         {
             while (currentToken != null)
             {
-                await Task.Run(() => Thread.Sleep(50)).ConfigureAwait(true);
+                await Task.Delay(50, cancellationToken);
                 currentToken = tokenSource;
             }
             
             var lower = text?.ToLower();
+            int? searchId = null;
+            if (int.TryParse(text, out var textInt))
+                searchId = textInt;
             
             // filtering on a separate thread, so that UI doesn't lag
             await Task.Run(() =>
@@ -36,16 +43,18 @@ namespace WDE.SmartScriptEditor.Editor.ViewModels
                 visibleCount = 0;
                 foreach (var item in AllItems)
                 {
-                    if (string.IsNullOrEmpty(lower))
+                    if (searchId.HasValue && searchId.Value == item.Id)
+                        item.Score = 101;
+                    else if (string.IsNullOrEmpty(lower))
                     {
                         item.Score = 100;
                     }
-                    else if (item.Name.ToLower() == lower)
+                    else if (item.Name.Equals(lower, StringComparison.InvariantCultureIgnoreCase))
                     {
                         item.Score = 101;
                     } else
                     {
-                        int indexOf = item.SearchName.IndexOf(lower, StringComparison.Ordinal);
+                        int indexOf = item.SearchName.IndexOf(lower, StringComparison.InvariantCultureIgnoreCase);
                         bool contains = indexOf != -1;
                         bool isFullWorld = false;
                         if (contains)
@@ -79,9 +88,12 @@ namespace WDE.SmartScriptEditor.Editor.ViewModels
             }
             
             var filtered = AllItems.OrderByDescending(f => string.IsNullOrEmpty(lower) ? -f.Order : f.Score).ToList();
-            Items.OverrideWith(filtered);
+            {
+                using var _ = Items.SuspendNotifications();
+                Items.OverrideWith(filtered);
+            }
             
-            SelectedItem ??= Items.FirstOrDefault();
+            SelectFirstVisible();
             currentToken = null;
         }
 
@@ -91,28 +103,18 @@ namespace WDE.SmartScriptEditor.Editor.ViewModels
             Func<SmartGenericJsonData, bool> predicate,
             List<(int, string)>? customItems,
             ISmartDataManager smartDataManager,
-            IConditionDataManager conditionDataManager)
+            IConditionDataManager conditionDataManager,
+            IFavouriteSmartsService favourites)
         {
+            this.favourites = favourites;
             Title = title;
-            MakeItems(type, predicate, customItems, smartDataManager, conditionDataManager);
+            MakeItems(type, predicate, customItems, smartDataManager, conditionDataManager).ListenErrors();
 
             AutoDispose(this.WhenValueChanged(t => t.SearchBox)!
-                .SubscribeAction(text =>
-                {
-                    if (currentToken != null)
-                    {
-                        Console.WriteLine("Searching in progress, canceling");
-                    }
-                    currentToken?.Cancel();
-                    var token = new CancellationTokenSource();
-                    FilterAndSort(text, token, token.Token).ListenErrors();
-                }));
-
-            if (Items.Count > 0)
-                SelectedItem = Items[0];
+                .SubscribeAction(DoFilterNow));
 
             Cancel = new DelegateCommand(() => CloseCancel?.Invoke());
-            Accept = new DelegateCommand(() =>
+            _accept = new DelegateCommand(() =>
             {
                 if (selectedItem == null)
                     SelectedItem = FindExactMatching() ?? Items.FirstOrDefault();
@@ -121,6 +123,23 @@ namespace WDE.SmartScriptEditor.Editor.ViewModels
             }, () => selectedItem != null || (visibleCount == 1 || FindExactMatching() != null))
                 .ObservesProperty(() => SearchBox)
                 .ObservesProperty(() => SelectedItem);
+            
+            ToggleFavouriteCommand = new DelegateCommand<SmartItem>(item =>
+            {
+                item.IsFavourite = !item.IsFavourite;
+            });
+        }
+
+        private void DoFilterNow(string? text)
+        {
+            if (currentToken != null)
+            {
+                LOG.LogWarning("Searching in progress, canceling");
+            }
+
+            currentToken?.Cancel();
+            var token = new CancellationTokenSource();
+            FilterAndSort(text, token, token.Token).ListenErrors();
         }
 
         private SmartItem? FindExactMatching()
@@ -141,7 +160,7 @@ namespace WDE.SmartScriptEditor.Editor.ViewModels
         
         public void SelectFirstVisible()
         {
-            SelectedItem = Items.FirstOrDefault();
+            SelectedItem = Items.FirstOrDefault(i => i.IsFavourite && i.ShowItem) ?? Items.FirstOrDefault(i => i.ShowItem);
         }
         
         public List<SmartItem> AllItems { get; } = new();
@@ -161,30 +180,34 @@ namespace WDE.SmartScriptEditor.Editor.ViewModels
             set
             {
                 SetProperty(ref selectedItem, value);
-                Accept?.RaiseCanExecuteChanged();
+                _accept?.RaiseCanExecuteChanged();
             }
         }
         
-        private void MakeItems(SmartType type, 
+        private async Task MakeItems(SmartType type, 
             Func<SmartGenericJsonData, bool> predicate, 
             List<(int id, string name)>? customItems,
             ISmartDataManager smartDataManager, 
             IConditionDataManager conditionDataManager)
         {
+            await Task.Delay(1); // add small delay for UI to render
             int order = 0;
-            foreach (var smartDataGroup in smartDataManager.GetGroupsData(type))
+            foreach (var smartDataGroup in await smartDataManager.GetGroupsData(type))
             {
                 foreach (var member in smartDataGroup.Members)
                 {
                     if (smartDataManager.Contains(type, member))
                     {
                         SmartGenericJsonData data = smartDataManager.GetDataByName(type, member);
+                        
+                        if (data.Deprecated)
+                            continue;
+
                         if (predicate != null && !predicate(data))
                             continue;
 
-                        SmartItem i = new()
+                        SmartItem i = new(smartDataGroup.Name, favourites.IsFavourite(data.Name), (item, @is) => favourites.SetFavourite(item.EnumName, @is))
                         {
-                            Group = smartDataGroup.Name,
                             Name = data.NameReadable,
                             SearchName = data.SearchTags == null ? data.NameReadable : $"{data.NameReadable} {data.SearchTags}",
                             Id = data.Id,
@@ -197,6 +220,8 @@ namespace WDE.SmartScriptEditor.Editor.ViewModels
 
                         AllItems.Add(i);
                         Items.Add(i);
+                        //if (order % 50 == 0)
+                        //    await Task.Delay(1); // add small delay for UI to render
                     }
                 }
             }
@@ -205,9 +230,8 @@ namespace WDE.SmartScriptEditor.Editor.ViewModels
             {
                 foreach (var customItem in customItems)
                 {
-                    SmartItem i = new()
+                    SmartItem i = new("Custom", false, null)
                     {
-                        Group = "Custom",
                         Name = customItem.name,
                         SearchName = customItem.name,
                         CustomId = customItem.id,
@@ -231,9 +255,8 @@ namespace WDE.SmartScriptEditor.Editor.ViewModels
                         {
                             ConditionJsonData data = conditionDataManager.GetConditionData(member);
 
-                            SmartItem i = new()
+                            SmartItem i = new(conditionDataGroup.Name, favourites.IsFavourite(data.Name), (item, @is) => favourites.SetFavourite(item.EnumName, @is))
                             {
-                                Group = conditionDataGroup.Name,
                                 SearchName = data.NameReadable,
                                 Name = data.NameReadable,
                                 Id = data.Id,
@@ -249,10 +272,18 @@ namespace WDE.SmartScriptEditor.Editor.ViewModels
                     }
                 }   
             }
+            
+            if (Items.Count > 0 && SelectedItem == null)
+                SelectFirstVisible();
+            
+            if (!string.IsNullOrEmpty(searchBox))
+                DoFilterNow(searchBox);
         }
 
-        public DelegateCommand Cancel { get; }
-        public DelegateCommand Accept { get; }
+        public DelegateCommand<SmartItem> ToggleFavouriteCommand { get; }
+        public ICommand Cancel { get; }
+        private DelegateCommand _accept { get; }
+        public ICommand Accept => _accept;
         public int DesiredWidth => 750;
         public int DesiredHeight => 650;
         public string Title { get; }

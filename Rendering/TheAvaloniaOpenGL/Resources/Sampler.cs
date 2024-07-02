@@ -1,12 +1,10 @@
-﻿using System;
-
-namespace TheAvaloniaOpenGL.Resources
+﻿namespace TheAvaloniaOpenGL.Resources
 {
     public class Sampler : IDisposable
     {
         private readonly IDevice device;
         //private SamplerState sampler;
-        private int sampler;
+        //private int sampler;
 
         internal Sampler(IDevice device)
         {

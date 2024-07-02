@@ -5,7 +5,9 @@ using System.Threading.Tasks;
 using System.Windows.Input;
 using AsyncAwaitBestPractices.MVVM;
 using WDE.Common.History;
+using WDE.Common.Outliner;
 using WDE.Common.Types;
+using WDE.SqlQueryGenerator;
 
 namespace WDE.Common.Managers
 {
@@ -16,7 +18,12 @@ namespace WDE.Common.Managers
         IHistoryManager? History { get; }
         bool IsModified { get; }
     }
-    
+
+    public interface IBeforeSaveConfirmDocument
+    {
+        Task<bool> ShallSavePreventClosing();
+    }
+
     public interface IDocument : IUndoRedoWindow, IDisposable, INotifyPropertyChanged
     {
         string Title { get; }
@@ -24,7 +31,7 @@ namespace WDE.Common.Managers
         ICommand Copy { get; }
         ICommand Cut { get; }
         ICommand Paste { get; }
-        ICommand Save { get; }
+        IAsyncCommand Save { get; }
         IAsyncCommand? CloseCommand { get; set; }
         bool CanClose { get; }
     }
@@ -32,13 +39,26 @@ namespace WDE.Common.Managers
     public interface ISolutionItemDocument : IDocument
     {
         ISolutionItem SolutionItem { get; }
-        Task<string> GenerateQuery();
+        Task<IQuery> GenerateQuery();
         bool ShowExportToolbarButtons => true;
+        bool IsLoading => false;
+    }
+
+    // this is a hack for quest chains
+    public interface ISolutionItemManualUpdateSessionOnSave
+    {
+
+    }
+
+    public interface IPeriodicSnapshotDocument : IDocument
+    {
+        string? TakeSnapshot();
+        void RestoreSnapshot(string snapshot);
     }
 
     public interface ISplitSolutionItemQueryGenerator
     {
-        Task<IList<(ISolutionItem, string)>> GenerateSplitQuery();
+        Task<IList<(ISolutionItem, IQuery)>> GenerateSplitQuery();
     }
 
     public interface IProblemSourceDocument : IDocument
@@ -46,6 +66,11 @@ namespace WDE.Common.Managers
         IObservable<IReadOnlyList<IInspectionResult>> Problems { get; }
     }
 
+    public interface IOutlinerSourceDocument : IDocument
+    {
+        IObservable<IOutlinerModel> OutlinerModel { get; }
+    }
+    
     public interface IInspectionResult
     {
         public string Message { get; }
@@ -55,6 +80,7 @@ namespace WDE.Common.Managers
     
     public enum DiagnosticSeverity
     {
+        Critical,
         Error,
         Warning,
         Info

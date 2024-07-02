@@ -10,6 +10,7 @@ namespace WDE.MPQ.ViewModels
         private readonly IUserSettings userSettings;
         private readonly IWoWFilesVerifier verifier;
         private string? path;
+        private MpqOpenType openType;
 
         public MpqSettings(IUserSettings userSettings, IWoWFilesVerifier verifier)
         {
@@ -19,21 +20,31 @@ namespace WDE.MPQ.ViewModels
 
             if (verifier.VerifyFolder(saved.Path) != WoWFilesType.Invalid)
                 path = saved.Path;
+
+            openType = saved.OpenType;
         }
 
         private struct Data : ISettings
         {
             public string? Path { get; set; }
+            public MpqOpenType OpenType { get; set; }
         }
         
         public string? Path
         {
             get => path;
-            set
-            {
-                path = value;
-                userSettings.Update(new Data(){Path = value});
-            }
+            set => path = value;
+        }
+
+        public MpqOpenType OpenType
+        {
+            get => openType;
+            set => openType = value;
+        }
+
+        public void Save()
+        {
+            userSettings.Update(new Data(){Path = path, OpenType = openType});
         }
     }
 }

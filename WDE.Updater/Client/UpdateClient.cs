@@ -15,10 +15,10 @@ namespace WDE.Updater.Client
         private readonly Uri updateServerUrl;
         private readonly string marketplace;
         private readonly string? key;
-        private readonly Platforms platform;
+        private readonly UpdatePlatforms platform;
         private readonly HttpClient client;
 
-        public UpdateClient(Uri updateServerUrl, string marketplace, string? key, Platforms platform, HttpClient client)
+        public UpdateClient(Uri updateServerUrl, string marketplace, string? key, UpdatePlatforms platform, HttpClient client)
         {
             this.updateServerUrl = updateServerUrl;
             this.marketplace = marketplace;
@@ -26,7 +26,7 @@ namespace WDE.Updater.Client
             this.platform = platform;
             this.client = client;
             if (IsUnsupportedOS())
-                this.platform = Platforms.Windows7;
+                this.platform = UpdatePlatforms.Windows7;
         }
 
         /**
@@ -48,7 +48,9 @@ namespace WDE.Updater.Client
             if (response.StatusCode == HttpStatusCode.OK)
             {
                 string responseBody = await response.Content.ReadAsStringAsync();
-                return JsonConvert.DeserializeObject<CheckVersionResponse>(responseBody);
+                var result = JsonConvert.DeserializeObject<CheckVersionResponse>(responseBody);
+                if (result != null)
+                    return result;
             }
 
             throw new Exception("Update server returned " + response.StatusCode);

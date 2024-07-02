@@ -15,6 +15,12 @@ namespace AvaloniaStyles.Controls
         public static readonly StyledProperty<object> RightContentProperty =
             AvaloniaProperty.Register<ToolBar, object>(nameof(RightContent));
         
+        public static readonly StyledProperty<object> TopContentProperty =
+            AvaloniaProperty.Register<ToolBar, object>(nameof(TopContent));
+        
+        public static readonly StyledProperty<object> TopLeftContentProperty =
+            AvaloniaProperty.Register<ToolBar, object>(nameof(TopLeftContent));
+
         public object MiddleContent
         {
             get => GetValue(MiddleContentProperty);
@@ -27,6 +33,18 @@ namespace AvaloniaStyles.Controls
             set => SetValue(LeftContentProperty, value);
         }
         
+        public object TopContent
+        {
+            get => GetValue(TopContentProperty);
+            set => SetValue(TopContentProperty, value);
+        }
+        
+        public object TopLeftContent
+        {
+            get => GetValue(TopLeftContentProperty);
+            set => SetValue(TopLeftContentProperty, value);
+        }
+
         public object RightContent
         {
             get => GetValue(RightContentProperty);
@@ -38,6 +56,8 @@ namespace AvaloniaStyles.Controls
             MiddleContentProperty.Changed.AddClassHandler<ToolBar>(Action);
             LeftContentProperty.Changed.AddClassHandler<ToolBar>(Action);
             RightContentProperty.Changed.AddClassHandler<ToolBar>(Action);
+            TopContentProperty.Changed.AddClassHandler<ToolBar>(Action);
+            TopLeftContentProperty.Changed.AddClassHandler<ToolBar>(Action);
         }
 
         private static void Action(ToolBar titlebar, AvaloniaPropertyChangedEventArgs args)

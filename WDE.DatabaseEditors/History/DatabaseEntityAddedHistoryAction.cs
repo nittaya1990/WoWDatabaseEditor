@@ -1,21 +1,24 @@
 using WDE.Common.History;
+using WDE.Common.Services;
 using WDE.DatabaseEditors.Models;
 using WDE.DatabaseEditors.ViewModels;
 
 namespace WDE.DatabaseEditors.History
 {
-    public class DatabaseEntityAddedHistoryAction : IHistoryAction
+    public class TemplateDatabaseEntityAddedHistoryAction : IHistoryAction
     {
         private readonly DatabaseEntity entity;
         private readonly int index;
         private readonly ViewModelBase viewModel;
+        private readonly DatabaseKey actualKey;
 
-        public DatabaseEntityAddedHistoryAction(DatabaseEntity entity, int index,
+        public TemplateDatabaseEntityAddedHistoryAction(DatabaseEntity entity, int index,
             ViewModelBase viewModel)
         {
             this.entity = entity;
             this.index = index;
             this.viewModel = viewModel;
+            actualKey = entity.GenerateKey(viewModel.TableDefinition);
         }
         
         public void Undo()
@@ -30,27 +33,29 @@ namespace WDE.DatabaseEditors.History
 
         public string GetDescription()
         {
-            return $"Entity {entity.Key} added";
+            return $"Entity {actualKey} added";
         }
     }
     
-    public class DatabaseEntityRemovedHistoryAction : IHistoryAction
+    public class TemplateDatabaseEntityRemovedHistoryAction : IHistoryAction
     {
         private readonly DatabaseEntity entity;
         private readonly int index;
         private readonly ViewModelBase viewModel;
+        private readonly DatabaseKey actualKey;
 
-        public DatabaseEntityRemovedHistoryAction(DatabaseEntity entity, int index,
+        public TemplateDatabaseEntityRemovedHistoryAction(DatabaseEntity entity, int index,
             ViewModelBase viewModel)
         {
             this.entity = entity;
             this.index = index;
             this.viewModel = viewModel;
+            actualKey = entity.GenerateKey(viewModel.TableDefinition);
         }
         
         public void Undo()
         {
-            viewModel.ForceInsertEntity(entity, index);
+            viewModel.ForceInsertEntity(entity, index, true);
         }
 
         public void Redo()
@@ -60,7 +65,7 @@ namespace WDE.DatabaseEditors.History
 
         public string GetDescription()
         {
-            return $"Entity {entity.Key} removed";
+            return $"Entity {actualKey} removed";
         }
     }
 }

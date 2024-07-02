@@ -1,16 +1,22 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
+using System.Threading.Tasks;
 using WDE.Common.CoreVersion;
 using WDE.Common.Database;
 using WDE.Common.Services.MessageBox;
 using WDE.Common.Solution;
+using WDE.Common.Utils;
 using WDE.Module.Attributes;
 using WDE.SmartScriptEditor;
 using WDE.SmartScriptEditor.Data;
+using WDE.SmartScriptEditor.Editor;
 using WDE.SmartScriptEditor.Editor.UserControls;
 using WDE.SmartScriptEditor.Exporter;
 using WDE.SmartScriptEditor.Models;
+using WDE.SmartScriptEditor.Models.Helpers;
+using WDE.SqlQueryGenerator;
 
 namespace WDE.TrinitySmartScriptEditor.Exporter
 {
@@ -24,6 +30,8 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
         private readonly ISolutionItemNameRegistry nameRegistry;
         private readonly IDatabaseProvider databaseProvider;
         private readonly IMessageBoxService messageBoxService;
+        private readonly ISmartScriptImporter importer;
+        private readonly IEditorFeatures editorFeatures;
         private readonly IConditionQueryGenerator conditionQueryGenerator;
 
         public TrinityCoreSmartScriptExporter(ISmartFactory smartFactory,
@@ -32,6 +40,8 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
             ISolutionItemNameRegistry nameRegistry,
             IDatabaseProvider databaseProvider,
             IMessageBoxService messageBoxService,
+            ISmartScriptImporter importer,
+            IEditorFeatures editorFeatures,
             IConditionQueryGenerator conditionQueryGenerator)
         {
             this.smartFactory = smartFactory;
@@ -40,13 +50,53 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
             this.nameRegistry = nameRegistry;
             this.databaseProvider = databaseProvider;
             this.messageBoxService = messageBoxService;
+            this.importer = importer;
+            this.editorFeatures = editorFeatures;
             this.conditionQueryGenerator = conditionQueryGenerator;
         }
-        
+
+        public IReadOnlyList<ICondition> ToDatabaseCompatibleConditions(SmartScript script, SmartEvent @event)
+        {
+            return ToDatabaseCompatibleConditions(script, @event, 0);
+        }
+
+        public IReadOnlyList<IConditionLine> ToDatabaseCompatibleConditions(SmartScript script, SmartEvent e, int id)
+        {
+            var lines = new List<AbstractConditionLine>();
+            var elseGroup = 0;
+
+            for (var index = 0; index < e.Conditions.Count; index++)
+            {
+                SmartCondition c = e.Conditions[index];
+                if (c.Id == SmartConstants.ConditionOr)
+                {
+                    elseGroup++;
+                    continue;
+                }
+                lines.Add(new AbstractConditionLine()
+                {
+                    SourceType = SmartConstants.ConditionSourceSmartScript,
+                    SourceGroup = id + 1,
+                    SourceEntry = script.EntryOrGuid,
+                    SourceId = (int)script.SourceType,
+                    ElseGroup = elseGroup,
+                    ConditionType = c.Id,
+                    ConditionTarget = (byte)c.ConditionTarget.Value,
+                    ConditionValue1 = (int)c.GetParameter(0).Value,
+                    ConditionValue2 = (int)c.GetParameter(1).Value,
+                    ConditionValue3 = (int)c.GetParameter(2).Value,
+                    ConditionStringValue1 = c.GetStringValueOrDefault(0) ?? "",
+                    NegativeCondition = (int)c.Inverted.Value,
+                    Comment = c.Readable.RemoveTags()
+                });
+            }
+            return lines.ToArray();
+        }
+
         public (ISmartScriptLine[], IConditionLine[]) ToDatabaseCompatibleSmartScript(SmartScript script)
         {
             if (script.Events.Count == 0)
-                return (new ISmartScriptLine[0], null);
+                return (new ISmartScriptLine[0], new IConditionLine[0]);
 
             var eventId = 0;
             var lines = new List<ISmartScriptLine>();
@@ -103,15 +153,22 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                 {
                     for (var index = 0; index < e.Actions.Count; ++index)
                     {
-                        SmartEvent eventToSerialize = index == 0 ? e.ShallowCopy() : smartFactory.EventFactory(SmartConstants.EventUpdateInCombat);
-
+                        SmartEvent eventToSerialize = index == 0 ? e.ShallowCopy() : smartFactory.EventFactory(null, SmartConstants.EventUpdateInCombat);
                         SmartAction actualAction = e.Actions[index].Copy();
+
+                        // next is await
+                        if (index + 1 < e.Actions.Count && e.Actions[index + 1].Id == SmartConstants.ActionAwaitTimedList)
+                        {
+                            index++;
+                            eventToSerialize.Flags.Value |= SmartConstants.EventFlagActionListWaits;
+                        }
+
                         AdjustCoreCompatibleAction(actualAction);
                         
                         eventToSerialize.Parent = script;
                         eventToSerialize.Actions.Add(actualAction);
                         
-                        var serialized = eventToSerialize.ToSmartScriptLines(script.EntryOrGuid, script.SourceType, eventId++, false, 0);
+                        var serialized = eventToSerialize.ToSmartScriptLines(null, script.EntryOrGuid, script.SourceType, eventId++, false, 0);
 
                         if (serialized.Length != 1)
                             throw new InvalidOperationException();
@@ -129,7 +186,7 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                 {
                     if (eventForConditions != null)
                     {
-                        var serializedConditions = eventForConditions.ToConditionLines(SmartConstants.ConditionSourceSmartScript, script.EntryOrGuid, script.SourceType, eventId);
+                        var serializedConditions = ToDatabaseCompatibleConditions(script, eventForConditions, eventId);
                         if (serializedConditions != null)
                             conditions.AddRange(serializedConditions);
                     }
@@ -138,7 +195,7 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                     {
                         if (toSerialize.Actions.Count == 0)
                             continue;
-                        var serialized = toSerialize.ToSmartScriptLines(script.EntryOrGuid, script.SourceType, eventId, true);
+                        var serialized = toSerialize.ToSmartScriptLines(null, script.EntryOrGuid, script.SourceType, eventId, true);
                         eventId += serialized.Length;
                         lines.AddRange(serialized);
                     }
@@ -157,11 +214,15 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                     SmartEvent lastEvent = originalEvent;
                     
                     long accumulatedWaits = 0;
+                    int? firstInlineActionListId = null;
+                    int? firstInlineActionListUpdateType = null;
+                    bool? firstInlineActionListAllowOverride = null;
+                    int? currentInlineActionListId = null;
                     for (var index = 0; index < e.Actions.Count; ++index)
                     {
                         if (previousWasWait)
                         {
-                            var eventTimed = smartFactory.EventFactory(SmartConstants.EventTriggerTimed);
+                            var eventTimed = smartFactory.EventFactory(null, SmartConstants.EventTriggerTimed);
                             eventTimed.Parent = script;
                             eventTimed.GetParameter(0).Value = nextTriggerId++;
                             additionalEvents.Add(eventTimed);
@@ -171,15 +232,17 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                         if (e.Actions[index].Id == SmartConstants.ActionBeginInlineActionList ||
                             e.Actions[index].Id == SmartConstants.ActionAfter)
                         {
-                            var timedActionListId = GetNextUnusedTimedActionList();
+                            firstInlineActionListId = currentInlineActionListId = GetNextUnusedTimedActionList();
                             SmartAction callTimedActionList = smartFactory.ActionFactory(SmartConstants.ActionCallTimedActionList,
                                 smartFactory.SourceFactory(SmartConstants.SourceSelf),
                                 smartFactory.TargetFactory(SmartConstants.TargetSelf));
-                            callTimedActionList.GetParameter(0).Value = timedActionListId;
+                            callTimedActionList.GetParameter(0).Value = currentInlineActionListId.Value;
                             if (e.Actions[index].Id == SmartConstants.ActionBeginInlineActionList)
                             {
-                                callTimedActionList.GetParameter(1).Value = e.Actions[index].GetParameter(0).Value;
-                                callTimedActionList.GetParameter(2).Value = e.Actions[index].GetParameter(1).Value;
+                                firstInlineActionListUpdateType = (int)e.Actions[index].GetParameter(0).Value;
+                                firstInlineActionListAllowOverride = e.Actions[index].GetParameter(1).Value != 0;
+                                callTimedActionList.GetParameter(1).Value = firstInlineActionListUpdateType.Value;
+                                callTimedActionList.GetParameter(2).Value = firstInlineActionListAllowOverride.Value ? 1 : 0;
                                 index++;
                             }
                             callTimedActionList.Comment = SmartConstants.CommentInlineActionList;
@@ -201,20 +264,35 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                                 }
                                 else if (e.Actions[index].Id == SmartConstants.ActionAfterMovement && index > 0)
                                 {
+                                    var previousActionType = e.Actions[index - 1].Id;
+                                    Debug.Assert(previousActionType is SmartConstants.ActionStartWaypointsPath or SmartConstants.ActionMovePoint);
                                     afterTimeMin = 0;
                                     afterTimeMax = 0;
-                                    var pathId = e.Actions[index - 1].GetParameter(1).Value;
-                                    timedActionListId = GetNextUnusedTimedActionList();
 
-                                    var eventFinishedMovement =
-                                        smartFactory.EventFactory(SmartConstants.EventWaypointsEnded);
+                                    SmartEvent eventFinishedMovement;
+                                    if (previousActionType == SmartConstants.ActionStartWaypointsPath)
+                                    {
+                                        var pathId = e.Actions[index - 1].GetParameter(1).Value;
+                                        eventFinishedMovement = smartFactory.EventFactory(null, SmartConstants.EventWaypointsEnded);
+                                        eventFinishedMovement.GetParameter(1).Value = pathId;
+                                    }
+                                    else if (previousActionType == SmartConstants.ActionMovePoint)
+                                    {
+                                        var pointId = e.Actions[index - 1].GetParameter(0).Value;
+                                        eventFinishedMovement = smartFactory.EventFactory(null, SmartConstants.EventMovementInform);
+                                        eventFinishedMovement.GetParameter(0).Value = SmartConstants.MovementTypePointMotionType;
+                                        eventFinishedMovement.GetParameter(1).Value = pointId;
+                                    }
+                                    else
+                                        throw new Exception("Invalid previosu action type");
+
                                     eventFinishedMovement.Parent = script;
-                                    eventFinishedMovement.GetParameter(1).Value = pathId;
                                     
+                                    currentInlineActionListId = GetNextUnusedTimedActionList();
                                     var callAnotherTimedActionList = smartFactory.ActionFactory(SmartConstants.ActionCallTimedActionList,
                                         smartFactory.SourceFactory(SmartConstants.SourceSelf),
                                         smartFactory.TargetFactory(SmartConstants.TargetSelf));
-                                    callAnotherTimedActionList.GetParameter(0).Value = timedActionListId;
+                                    callAnotherTimedActionList.GetParameter(0).Value = currentInlineActionListId.Value;
                                     callAnotherTimedActionList.Comment = SmartConstants.CommentInlineMovementActionList;
                                     
                                     eventFinishedMovement.AddAction(callAnotherTimedActionList);
@@ -223,16 +301,48 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                                 }
                                 else
                                 {
-                                    SmartEvent after = smartFactory.EventFactory(SmartConstants.EventUpdateInCombat);
+                                    SmartEvent after = smartFactory.EventFactory(null, SmartConstants.EventUpdateInCombat);
                                     after.GetParameter(0).Value = afterTimeMin;
                                     after.GetParameter(1).Value = afterTimeMax;
                                     SmartAction actualAction = e.Actions[index].Copy();
+
+                                    if (index + 1 < e.Actions.Count &&
+                                        e.Actions[index + 1].Id == SmartConstants.ActionAwaitTimedList)
+                                    {
+                                        index++;
+                                        after.Flags.Value |= SmartConstants.EventFlagActionListWaits;
+                                    }
+
+                                    if (e.Actions[index].Id == SmartConstants.ActionRepeatTimedActionList)
+                                    {
+                                        actualAction = smartFactory.ActionFactory(SmartConstants.ActionCreateTimed, null, null);
+                                        actualAction.GetParameter(0).Value = nextTriggerId;
+                                        actualAction.GetParameter(1).Value = 500;
+                                        actualAction.GetParameter(2).Value = 500;
+                                        actualAction.Comment = SmartConstants.CommentInlineRepeatActionList;
+                                        
+                                        var eventTimedTriggerRepeat = smartFactory.EventFactory(null, SmartConstants.EventTriggerTimed);
+                                        eventTimedTriggerRepeat.Parent = script;
+                                        eventTimedTriggerRepeat.GetParameter(0).Value = nextTriggerId++;
+                                        additionalEvents.Add(eventTimedTriggerRepeat);
+                                        
+                                        SmartAction callTimedActionListAgain = smartFactory.ActionFactory(SmartConstants.ActionCallTimedActionList, smartFactory.SourceFactory(SmartConstants.SourceSelf), smartFactory.TargetFactory(SmartConstants.TargetSelf));
+                                        callTimedActionListAgain.GetParameter(0).Value = firstInlineActionListId.Value;
+                                        if (firstInlineActionListUpdateType.HasValue)
+                                            callTimedActionList.GetParameter(1).Value = firstInlineActionListUpdateType.Value;
+                                        if (firstInlineActionListAllowOverride.HasValue)
+                                            callTimedActionList.GetParameter(2).Value = firstInlineActionListAllowOverride.Value ? 1 : 0;
+
+                                        callTimedActionListAgain.Parent = eventTimedTriggerRepeat;
+                                        eventTimedTriggerRepeat.Actions.Add(callTimedActionListAgain);
+                                    }
+                                    
                                     AdjustCoreCompatibleAction(actualAction);
                         
-                                    after.Parent = new SmartScript(new SmartScriptSolutionItem(timedActionListId, SmartScriptType.TimedActionList), smartFactory, smartDataManager, messageBoxService);
+                                    after.Parent = new SmartScript(new SmartScriptSolutionItem(currentInlineActionListId.Value, SmartScriptType.TimedActionList), smartFactory, smartDataManager, messageBoxService, editorFeatures, importer);
                                     after.AddAction(actualAction);
                         
-                                    var serialized = after.ToSmartScriptLines(timedActionListId, SmartScriptType.TimedActionList, timedEventId++, false, 0);
+                                    var serialized = after.ToSmartScriptLines(null, currentInlineActionListId.Value, SmartScriptType.TimedActionList, timedEventId++, false, 0);
 
                                     if (serialized.Length != 1)
                                         throw new InvalidOperationException();
@@ -240,6 +350,9 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
                                     lines.Add(serialized[0]);
                                     afterTimeMin = 0;
                                     afterTimeMax = 0;
+                                    
+                                    if (e.Actions[index].Id == SmartConstants.ActionRepeatTimedActionList)
+                                        FlushLines(null);
                                 }
                             }
                         }
@@ -314,9 +427,19 @@ namespace WDE.TrinitySmartScriptEditor.Exporter
             }
         }
 
-        public string GenerateSql(ISmartScriptSolutionItem item, SmartScript script)
+        public async Task<IQuery> GenerateSql(ISmartScriptSolutionItem item, SmartScript script)
         {
-            return new ExporterHelper(script, databaseProvider, item, this, currentCoreVersion, nameRegistry, conditionQueryGenerator).GetSql().QueryString;
+            return await new ExporterHelper(script, databaseProvider, item, this, currentCoreVersion, nameRegistry, conditionQueryGenerator).GetSql();
+        }
+
+        public int GetDatabaseScriptTypeId(SmartScriptType type)
+        {
+            return (int)type;
+        }
+
+        public SmartScriptType GetScriptTypeFromId(int id)
+        {
+            return (SmartScriptType)id;
         }
     }
 }

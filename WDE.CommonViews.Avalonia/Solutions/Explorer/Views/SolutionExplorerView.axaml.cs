@@ -11,15 +11,11 @@ namespace WDE.CommonViews.Avalonia.Solutions.Explorer.Views
     /// <summary>
     ///     Interaction logic for SolutionExplorerView
     /// </summary>
-    public class SolutionExplorerView : ToolView 
+    public partial class SolutionExplorerView : ToolView 
     {
         public SolutionExplorerView()
         {
             InitializeComponent();
-        }
-        private void InitializeComponent()
-        {
-            AvaloniaXamlLoader.Load(this);
         }
 
         private void Tv_OnDoubleTapped(object? sender, TappedEventArgs e)

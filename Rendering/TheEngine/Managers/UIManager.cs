@@ -1,11 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ImGuiNET;
 using TheAvaloniaOpenGL.Resources;
+using TheEngine.Components;
 using TheEngine.Data;
+using TheEngine.ECS;
 using TheEngine.Entities;
 using TheEngine.Handles;
 using TheEngine.Interfaces;
+using TheEngine.Utils;
 using TheMaths;
 
 namespace TheEngine.Managers
@@ -13,6 +17,8 @@ namespace TheEngine.Managers
     public class UIManager : IUIManager, System.IDisposable
     {
         private readonly Engine engine;
+        private readonly ICameraManager cameraManager;
+        private readonly IEntityManager entityManager;
         private readonly ShaderHandle textShader;
         private readonly Material material;
         private readonly Material worldMaterial;
@@ -21,11 +27,31 @@ namespace TheEngine.Managers
         private readonly NativeBuffer<Vector4> glyphPositionsBuffer;
         private Vector4[] glyphUVs = new Vector4[1];
         private Vector4[] glyphPositions = new Vector4[1];
+        private ImGuiController imGuiController;
 
+        private float Scaling => engine.WindowHost.DpiScaling;
+
+        public class DrawTextData : IManagedComponentData
+        {
+            public string font;
+            public Vector2 pivot;
+            public string text;
+            public float fontSize;
+            public float visibilityDistanceSquare;
+        }
+        
+        private Archetype persistentTextArchetype;
+        
         public UIManager(Engine engine)
         {
             this.engine = engine;
-            textShader = engine.ShaderManager.LoadShader("internalShaders/sdf.json");
+            entityManager = engine.EntityManager;
+            cameraManager = engine.CameraManager;
+            persistentTextArchetype = entityManager.NewArchetype()
+                .WithManagedComponentData<DrawTextData>()
+                .WithComponentData<DisabledObjectBit>()
+                .WithComponentData<LocalToWorld>();
+            textShader = engine.ShaderManager.LoadShader("internalShaders/sdf.json", false);
             worldMaterial = engine.MaterialManager.CreateMaterial("internalShaders/world_text.json");
             worldMaterial.BlendingEnabled = true;
             worldMaterial.SourceBlending = Blending.SrcAlpha;
@@ -34,9 +60,9 @@ namespace TheEngine.Managers
             worldMaterial.ZWrite = false;
             worldMaterial.DepthTesting = DepthCompare.Always;
 
-            material = engine.MaterialManager.CreateMaterial(textShader);
+            material = engine.MaterialManager.CreateMaterial(textShader, null);
             material.BlendingEnabled = true;
-            material.SourceBlending = Blending.SrcAlpha;
+            material.SourceBlending = Blending.One;
             material.DestinationBlending = Blending.OneMinusSrcAlpha;
             material.Culling = CullingMode.Off;
             material.ZWrite = false;
@@ -53,7 +79,7 @@ namespace TheEngine.Managers
                 new(1, 1),
                 new(1, 0),
                 new(0, 0),
-            }, new int[] { 0, 1,2, 2, 3, 0 }));
+            }, new ushort[] { 0, 1,2, 2, 3, 0 }));
             glyphPositionsBuffer = engine.Device.CreateBuffer<Vector4>(BufferTypeEnum.StructuredBufferVertexOnly, 1, BufferInternalFormat.Float4);
             glyphUVsBuffer = engine.Device.CreateBuffer<Vector4>(BufferTypeEnum.StructuredBufferVertexOnly, 1, BufferInternalFormat.Float4);
             material.SetBuffer("glpyhUVs", glyphUVsBuffer);
@@ -61,15 +87,58 @@ namespace TheEngine.Managers
             
             worldMaterial.SetBuffer("glpyhUVs", glyphUVsBuffer);
             worldMaterial.SetBuffer("glyphPositions", glyphPositionsBuffer);
+
+            imGuiController = new ImGuiController(engine);
+            ei = new EntityInspector(engine);
         }
+
+        private EntityInspector ei;
 
         public void Dispose()
         {
             engine.MeshManager.DisposeMesh(quad);
             glyphUVsBuffer.Dispose();
             glyphPositionsBuffer.Dispose();
+            imGuiController.Dispose();
         }
 
+        internal void UpdateGui(float delta)
+        {
+            imGuiController.UpdateImGui(delta);
+        }
+
+        internal void Render()
+        {
+#if DEBUG
+            ei.Draw();
+#endif
+            var cameraPos = cameraManager.MainCamera.Transform.Position;
+            persistentTextArchetype.ForEach<LocalToWorld, DisabledObjectBit, DrawTextData>((itr, start, end, matrices, disabledAccess, datas) =>
+            {
+                for (int i = start; i < end; ++i)
+                {
+                    if (disabledAccess[i])
+                        continue;
+                    var data = datas[i];
+                    var matrix = matrices[i];
+                    if ((matrix.Position - cameraPos).LengthSquared() < data.visibilityDistanceSquare)
+                        DrawWorldText(data.font, data.pivot, data.text, data.fontSize, matrix);
+                }
+            });
+            
+            // using var ui = BeginImmediateDrawRel(0, 1, 0, 1);
+            // ui.BeginVerticalBox(new Vector4(0, 0, 0, 0.5f), 2);
+            // var em = engine.entityManager;
+            // foreach (var a in em.DataManager.Archetypes)
+            // {
+            //     if (a.Length == 0)
+            //         continue;
+            //     
+            //     ui.Text("calibri", a.Archetype.ToString() +": " + a.Length, 10, Vector4.One);
+            // }
+            
+            imGuiController.Render();
+        }
 
         public void DrawBox(float x, float y, float w, float h, Vector4 color)
         {
@@ -82,6 +151,23 @@ namespace TheEngine.Managers
             glyphPositionsBuffer.UpdateBuffer(glyphPositions);
             glyphUVsBuffer.UpdateBuffer(glyphUVs);
             engine.RenderManager.RenderInstancedIndirect(quad, material, 0, 1);
+        }
+
+        public Entity DrawPersistentWorldText(string font, Vector2 pivot, string text, float fontSize, Matrix localToWorld, float visibilityDistance)
+        {
+            var entity = entityManager.CreateEntity(persistentTextArchetype);
+
+            entityManager.SetManagedComponent(entity, new DrawTextData()
+            {
+                font = font,
+                fontSize = fontSize,
+                pivot = pivot,
+                text = text,
+                visibilityDistanceSquare = visibilityDistance * visibilityDistance
+            });
+            entityManager.GetComponent<LocalToWorld>(entity).Matrix = localToWorld;
+            
+            return entity;
         }
 
         public void DrawWorldText(string font, Vector2 pivot, ReadOnlySpan<char> text, float fontSize, Matrix localToWorld)
@@ -178,7 +264,7 @@ namespace TheEngine.Managers
             glyphPositionsBuffer.UpdateBuffer(glyphPositions);
             glyphUVsBuffer.UpdateBuffer(glyphUVs);
             engine.RenderManager.RenderInstancedIndirect(quad, material, 0, glyphsCount);
-            engine.RenderManager.Render(quad, material, 0, new Transform());
+            engine.RenderManager.Render(quad, material, 0,  Matrix.Identity);
         }
 
         public Vector2 MeasureText(string font, ReadOnlySpan<char> text, float fontSize)
@@ -236,7 +322,7 @@ namespace TheEngine.Managers
                 this.uiManager = uiManager;
                 this.str = str;
                 this.font = font;
-                this.size = size;
+                this.size = size * uiManager.Scaling;
                 this.color = color;
             }
             
@@ -342,7 +428,6 @@ namespace TheEngine.Managers
             public Vector2 Draw(float x, float y, float w, float h)
             {
                 float maxX = 0;
-                var total = new Vector2();
                 foreach (var child in children)
                 {
                     var measure = child.Measure();
@@ -367,10 +452,10 @@ namespace TheEngine.Managers
             {
                 this.uiManager = uiManager;
                 this.color = color;
-                this.padding = padding;
+                this.padding = padding * uiManager.Scaling;
                 this.child = child;
-                this.minWidth = minWidth;
-                this.minHeight = minHeight;
+                this.minWidth = minWidth * uiManager.Scaling;
+                this.minHeight = minHeight * uiManager.Scaling;
             }
 
             public Vector2 Measure()
@@ -390,15 +475,15 @@ namespace TheEngine.Managers
         
         public IImGui BeginImmediateDrawAbs(float x, float y)
         {
-            return new ImGui(this, new Vector2(x, y), false, Vector2.Zero);
+            return new TheImGui(this, new Vector2(x, y), false, Vector2.Zero);
         }
 
         public IImGui BeginImmediateDrawRel(float x, float y, float pivotX, float pivotY)
         {
-            return new ImGui(this, new Vector2(x, y), true, new Vector2(pivotX, pivotY));
+            return new TheImGui(this, new Vector2(x, y), true, new Vector2(pivotX, pivotY));
         }
 
-        internal class ImGui : IImGui
+        internal class TheImGui : IImGui
         {
             private readonly UIManager uiManager;
             private readonly Vector2 position;
@@ -407,7 +492,7 @@ namespace TheEngine.Managers
             private IDrawingCommand? root;
             private Stack<IChildContainer> parents = new();
 
-            public ImGui(UIManager uiManager, Vector2 position, bool relative, Vector2 pivot)
+            public TheImGui(UIManager uiManager, Vector2 position, bool relative, Vector2 pivot)
             {
                 this.uiManager = uiManager;
                 this.position = position;
@@ -474,6 +559,8 @@ namespace TheEngine.Managers
 
             public void Dispose()
             {
+                if (root == null)
+                    return;
                 var measure = root.Measure();
                 float posX = position.X;
                 float posY = position.Y;

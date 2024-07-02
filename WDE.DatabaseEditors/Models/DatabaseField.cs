@@ -6,24 +6,44 @@ using System.Runtime.CompilerServices;
 using WDE.Common.Annotations;
 using WDE.Common.History;
 using WDE.Common.Utils;
+using WDE.DatabaseEditors.Data.Structs;
 using WDE.DatabaseEditors.History;
 
 namespace WDE.DatabaseEditors.Models
 {
     public class DatabaseField<T> : IDatabaseField where T : IComparable<T>
     {
-        private readonly string columnName;
+        private readonly ColumnFullName columnName;
 
-        public DatabaseField(string columnName, ValueHolder<T> current)
+        public DatabaseField(ColumnFullName columnName, ValueHolder<T> current, ValueHolder<T>? original = null)
         {
             this.columnName = columnName;
             Current = current;
-            Original = new ValueHolder<T>(current.Value, current.IsNull);
+            Original = original ?? new ValueHolder<T>(current.Value, current.IsNull);
             Current.ValueChanged += OnValueChanged;
         }
 
         private void OnValueChanged(T? old, T? nnew, bool wasNull, bool isNull)
         {
+            ValueChanged?.Invoke(columnName, val =>
+            {
+                if (val is ValueHolder<T> tVal)
+                {
+                    if (wasNull)
+                        tVal.SetNull();
+                    else
+                        tVal.Value = old;
+                }
+            }, val =>
+            {
+                if (val is ValueHolder<T> tVal)
+                {
+                    if (isNull)
+                        tVal.SetNull();
+                    else
+                        tVal.Value = nnew;
+                }
+            });
             OnChanged?.Invoke(new DatabaseFieldHistoryAction<T>(this, columnName, old, nnew, wasNull, isNull));
             OnPropertyChanged(nameof(IsModified));
         }
@@ -69,7 +89,7 @@ namespace WDE.DatabaseEditors.Models
                 }
             }
         }
-        public string FieldName => columnName;
+        public ColumnFullName FieldName => columnName;
         public bool IsModified => Current.IsNull != Original.IsNull || Comparer<T>.Default.Compare(Current.Value, Original.Value) != 0;
         public event Action<IHistoryAction>? OnChanged;
         public string ToQueryString()
@@ -89,14 +109,17 @@ namespace WDE.DatabaseEditors.Models
             throw new Exception("Unexpected value of type " + typeof(T));
         }
 
+        public IValueHolder CurrentValue => Current;
+
         public IDatabaseField Clone()
         {
-            var copy = new DatabaseField<T>(columnName, Current.Clone());
-            copy.Original.Value = Original.Value;
+            var copy = new DatabaseField<T>(columnName, Current.Clone(), Original.Clone());
             return copy;
         }
 
         public object? Object => Current.IsNull ? null : Current.Value;
+        // <ColumnName, <Undo>, <Redo>
+        public event Action<ColumnFullName, Action<IValueHolder>, Action<IValueHolder>>? ValueChanged;
 
         public event PropertyChangedEventHandler? PropertyChanged = delegate { };
 

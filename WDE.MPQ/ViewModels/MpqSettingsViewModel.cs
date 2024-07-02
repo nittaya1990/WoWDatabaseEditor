@@ -9,10 +9,11 @@ using WDE.Module.Attributes;
 
 namespace WDE.MPQ.ViewModels
 {
-    [AutoRegister]
-    public class MpqSettingsViewModel : BindableBase, IConfigurable
+    [AutoRegister(Platforms.Desktop)]
+    public class MpqSettingsViewModel : BindableBase, IFirstTimeWizardConfigurable
     {
         private string? woWPath;
+        private MpqOpenType mpqOpenType;
 
         public MpqSettingsViewModel(IMpqSettings mpqSettings, 
             IWoWFilesVerifier verifier, 
@@ -20,10 +21,13 @@ namespace WDE.MPQ.ViewModels
             IMessageBoxService messageBoxService)
         {
             woWPath = mpqSettings.Path;
+            mpqOpenType = mpqSettings.OpenType;
             
             Save = new DelegateCommand(() =>
             {
                 mpqSettings.Path = woWPath;
+                mpqSettings.OpenType = mpqOpenType;
+                mpqSettings.Save();
                 IsModified = false;
                 RaisePropertyChanged(nameof(IsModified));
             });
@@ -39,7 +43,7 @@ namespace WDE.MPQ.ViewModels
                             .SetTitle("WoW Client Data")
                             .SetMainInstruction("Invalid WoW folder")
                             .SetContent(
-                                "This doesn't look like a correct Wrath of The Lich King folder.\n\nSelect main game folder (wow.exe file must be there).\n\nOther WoW versions are not supported now.")
+                                "This doesn't look like a correct WoW folder.\n\nSelect main game folder (wow.exe file must be there).\n\nOther WoW versions are not supported now.")
                             .WithOkButton(true)
                             .Build());
                     }
@@ -61,13 +65,26 @@ namespace WDE.MPQ.ViewModels
                 RaisePropertyChanged(nameof(IsModified));
             }
         }
+        
+        public List<MpqOpenType> MpqOpenTypes { get; } = Enum.GetValues(typeof(MpqOpenType)).Cast<MpqOpenType>().ToList();
+        
+        public MpqOpenType MpqOpenType
+        {
+            get => mpqOpenType;
+            set
+            {
+                SetProperty(ref mpqOpenType, value);
+                IsModified = true;
+                RaisePropertyChanged(nameof(IsModified));
+            }
+        }
 
         public ICommand Save { get; set; }
         public string Name => "Client data files";
         public string ShortDescription =>
-            "The editor can open Wrath of the Lich King files (MPQ) for extended features.";
+            "The editor can open 3.3.5, 4.3.4, 5.4.8 and 7.3.5 files for extended features.";
         public bool IsModified { get; set; }
         public bool IsRestartRequired => true;
-        public ConfigurableGroup Group => ConfigurableGroup.Advanced;
+        public ConfigurableGroup Group => ConfigurableGroup.Basic;
     }
 }

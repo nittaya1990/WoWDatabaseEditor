@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using WDE.WorldMap.Extensions;
 using WDE.WorldMap.Models;
 
@@ -15,7 +16,8 @@ namespace WDE.WorldMap
         private bool draggingItem;
         private Point startDrag;
         private Point startPos;
-        
+
+        #pragma warning disable AVP1002
         private double zoomBias;
         public static readonly DirectProperty<FastBoxRendererControl<T, R>, double> ZoomBiasProperty = AvaloniaProperty.RegisterDirect<FastBoxRendererControl<T, R>, double>("ZoomBias", o => o.ZoomBias, (o, v) => o.ZoomBias = v);
 
@@ -24,7 +26,10 @@ namespace WDE.WorldMap
 
         private bool renderMarkers = true;
         public static readonly DirectProperty<FastBoxRendererControl<T, R>, bool> RenderMarkersProperty = AvaloniaProperty.RegisterDirect<FastBoxRendererControl<T, R>, bool>("RenderMarkers", o => o.RenderMarkers, (o, v) => o.RenderMarkers = v);
+        #pragma warning restore AVP1002
 
+        private bool isAttachedToVisualTree;
+        
         static FastBoxRendererControl()
         {
             AffectsRender<FastBoxRendererControl<T, R>>(ZoomBiasProperty, RenderMarkersProperty);
@@ -38,7 +43,7 @@ namespace WDE.WorldMap
                 if (context != null)
                     Unbind(context);
                 SetAndRaise(ContextProperty, ref context, value);
-                if (value != null && Parent != null)
+                if (value != null && Parent != null && isAttachedToVisualTree)
                     Bind(value);
             }
         }
@@ -80,17 +85,20 @@ namespace WDE.WorldMap
                 var parent = e.Parent;
 
                 while (parent != null && parent is not WoWMapViewer)
-                    parent = parent.VisualParent;
+                    parent = parent.GetVisualParent();
 
                 if (parent is WoWMapViewer map)
                 {
                     attached = Bind(ZoomBiasProperty, map.GetBindingObservable(WoWMapViewer.ZoomProperty));
                 }
             }
+
+            isAttachedToVisualTree = true;
         }
 
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
         {
+            isAttachedToVisualTree = false;
             attached?.Dispose();
             attached = null;
             if (context != null)
@@ -246,9 +254,9 @@ namespace WDE.WorldMap
             StopDrag(e.GetPosition(this));
         }
 
-        protected override void OnPointerLeave(PointerEventArgs e)
+        protected override void OnPointerExited(PointerEventArgs e)
         {
-            base.OnPointerLeave(e);
+            base.OnPointerExited(e);
             StopDrag(null);
         }
 

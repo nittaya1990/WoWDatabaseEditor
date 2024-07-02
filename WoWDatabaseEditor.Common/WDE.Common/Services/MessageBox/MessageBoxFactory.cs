@@ -1,8 +1,14 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
+using WDE.Common.Utils;
 
 namespace WDE.Common.Services.MessageBox
 {
+    public struct EscapeToClose
+    {
+        public static EscapeToClose style;
+    }
+    
     public class MessageBoxFactory<T>
     {
         private string windowTitle = "";
@@ -67,10 +73,10 @@ namespace WDE.Common.Services.MessageBox
         {
             return WithButton("Yes", returnValue, true, false);
         }
-        
-        public MessageBoxFactory<T> WithNoButton(T returnValue)
+
+        public MessageBoxFactory<T> WithNoButton(T returnValue, EscapeToClose? escapeToCancel = null)
         {
-            return WithButton("No", returnValue, false, false);
+            return WithButton("No", returnValue, false, escapeToCancel.HasValue);
         }
         
         public MessageBoxFactory<T> WithCancelButton(T returnValue)
@@ -134,7 +140,26 @@ namespace WDE.Common.Services.MessageBox
                     CancelButton = Buttons[0];
                 }
                 else
+                {
                     Buttons = buttons!.ToList();
+                    Buttons.Sort((a, b) => GetButtonOrder(a?.Name).CompareTo(GetButtonOrder(b?.Name)));
+                }
+            }
+
+            private int GetButtonOrder(string? name)
+            {
+                switch (name)
+                {
+                    case "Yes":
+                    case "Ok":
+                        return 1;
+                    case "No":
+                        return 2;
+                    case "Cancel":
+                        return 3;
+                    default:
+                        return 0;
+                }
             }
 
             public string Title { get; }

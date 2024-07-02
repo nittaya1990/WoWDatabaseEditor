@@ -1,5 +1,4 @@
-using System;
-using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using OpenGLBindings;
 
 namespace TheAvaloniaOpenGL
@@ -25,10 +24,12 @@ namespace TheAvaloniaOpenGL
         {
             device.BindVertexArray(array);
         }
-        public unsafe void GetIntegerv(GetPName n, int* rv)
+
+        public int GetInteger(GetPName n)
         {
-            device.GetIntegerv(n, rv);
+            return device.GetInteger(n);
         }
+
         public void GenVertexArrays(int n, int[] rv)
         {
             device.GenVertexArrays(n, rv);
@@ -153,6 +154,12 @@ namespace TheAvaloniaOpenGL
         {
             device.Viewport(x, y, width, height);
         }
+
+        public void BlitFramebuffer(int srcX0, int srcY0, int srcX1, int srcY1, int dstX0, int dstY0, int dstX1, int dstY1, ClearBufferMask mask, BlitFramebufferFilter filter)
+        {
+            device.BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
+        }
+
         public void TexImage3D(TextureTarget target, int level, InternalFormat internalFormat, int width, int height, int depth, int border, PixelFormat format, PixelType type, IntPtr data)
         {
             device.TexImage3D(target, level, internalFormat, width, height, depth, border, format, type, data);
@@ -196,15 +203,36 @@ namespace TheAvaloniaOpenGL
         {
             device.UseProgram(program);
         }
+
+        public void ReadBuffer(ReadBufferMode buffer)
+        {
+            device.ReadBuffer(buffer);
+        }
+
+        public unsafe void ReadPixels<T>(int x, int y, int width, int height, PixelFormat format, PixelType type, Span<T> data) where T : unmanaged
+        {
+            device.ReadPixels(x, y, width, height, format, type, data);
+        }
+
+        public void DrawBuffers(ReadOnlySpan<DrawBuffersEnum> buffers)
+        {
+            device.DrawBuffers(buffers);
+        }
+
         public void DrawArrays(PrimitiveType mode, int first, IntPtr count)
         {
             device.DrawArrays(mode, first, count);
         }
-        public void DrawElements(PrimitiveType mode, int count, DrawElementsType type, IntPtr indices)
+        public void DrawElements(PrimitiveType mode, int count, DrawElementsType type, IntPtr startIndexLocation)
         {
-            device.DrawElements(mode, count, type, indices);
+            device.DrawElements(mode, count, type, startIndexLocation);
         }
-        
+
+        public void DrawElementsBaseVertex(PrimitiveType mode, int count, DrawElementsType type, IntPtr startIndexLocation, int startVertexLocationBytes)
+        {
+            device.DrawElementsBaseVertex(mode, count, type, startIndexLocation, startVertexLocationBytes);
+        }
+
         public int GetUniformLocation(int program, string name)
         {
             var loc = device.GetUniformLocation(program, name);
@@ -226,6 +254,11 @@ namespace TheAvaloniaOpenGL
             device.Uniform3f(loc, a, b, c);
         }
 
+        public unsafe void UniformMatrix4f(int location, ref Matrix4x4 m, bool transpose)
+        {
+            device.UniformMatrix4fv(location, 1, transpose, (float*)Unsafe.AsPointer(ref m));
+        }
+
         public void TexImage2D(TextureTarget target, int level, PixelInternalFormat internalFormat, int width, int height, int border, PixelFormat format, PixelType type, IntPtr data)
         {
             device.TexImage2D(target, level, internalFormat, width, height, border, format, type, data);
@@ -242,6 +275,17 @@ namespace TheAvaloniaOpenGL
         {
             return device.GetProgramInfoLog(program, maxLength);
         }
+
+        public void BlendEquation(BlendEquationMode mode)
+        { 
+            device.BlendEquation(mode);
+        }
+
+        public void BlendFuncSeparate(BlendingFactorSrc srcRGB, BlendingFactorDest dstRGB, BlendingFactorSrc srcAlpha, BlendingFactorDest dstAlpha)
+        {
+            device.BlendFuncSeparate(srcRGB, dstRGB, srcAlpha, dstAlpha);
+        }
+
         public int CreateProgram()
         {
             return device.CreateProgram();
@@ -303,6 +347,11 @@ namespace TheAvaloniaOpenGL
             device.ActiveTextureUnit(slot);
         }
 
+        public void DeleteProgram(int program)
+        {
+            device.DeleteProgram(program);
+        }
+
         public unsafe void DeleteTexture(int name)
         {
             device.DeleteTexture(name);
@@ -361,6 +410,26 @@ namespace TheAvaloniaOpenGL
         public void DepthFunction(DepthFunction func)
         {
             device.DepthFunc(func);
+        }
+
+        public void Scissor(int x, int y, int width, int height)
+        {
+            device.Scissor(x, y, width, height);
+        }
+
+        public void Flush()
+        {
+            device.Flush();
+        }
+
+        public void Finish()
+        {
+            device.Finish();
+        }
+
+        public void Debug(string msg)
+        {
+            
         }
     }
 }

@@ -1,5 +1,4 @@
-﻿using System;
-using OpenGLBindings;
+﻿using OpenGLBindings;
 using TheMaths;
 
 namespace TheAvaloniaOpenGL.Resources
@@ -20,15 +19,16 @@ namespace TheAvaloniaOpenGL.Resources
         None,
         Float4,
         Byte4,
-        Int4
+        Int4,
+        UInt
     }
 
-    public interface INativeBuffer
+    public interface INativeBuffer : IDisposable
     {
         void Activate(int slot);
     }
 
-    public class NativeBuffer<T> : IDisposable, INativeBuffer where T : unmanaged
+    public sealed class NativeBuffer<T> : INativeBuffer where T : unmanaged
     {
         private static bool UseStorageBuffer = false;
         
@@ -63,9 +63,35 @@ namespace TheAvaloniaOpenGL.Resources
             CreateBufferWithData(data);
         }
 
+        ~NativeBuffer()
+        {
+            if (BufferHandle != -1)
+            {
+                Console.WriteLine("Native buffer leaked!");
+            }
+        }
+
         private bool IsStructuredBuffer => BufferType == BufferTypeEnum.StructuredBuffer || BufferType == BufferTypeEnum.StructuredBufferPixelOnly || BufferType == BufferTypeEnum.StructuredBufferVertexOnly;
 
         public bool IsUsingBufferTexture => IsStructuredBuffer && !UseStorageBuffer;
+
+        private SizedInternalFormat ToInternalFormat(BufferInternalFormat format)
+        {
+            switch (format)
+            {
+                case BufferInternalFormat.Float4:
+                    return SizedInternalFormat.Rgba32f;
+                case BufferInternalFormat.Byte4:
+                    return SizedInternalFormat.Rgba8i;
+                case BufferInternalFormat.Int4:
+                    return SizedInternalFormat.Rgba32i;
+                case BufferInternalFormat.UInt:
+                    return SizedInternalFormat.R32ui;
+                case BufferInternalFormat.None:
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(format), format, null);
+            }
+        }
         
         private void CreateBuffer()
         {
@@ -77,7 +103,7 @@ namespace TheAvaloniaOpenGL.Resources
             {
                 TextureBufferHandle = device.GenTexture();
                 device.BindTexture(TextureTarget.TextureBuffer, TextureBufferHandle);
-                device.TexBuffer(TextureBufferTarget.TextureBuffer,  internalFormat == BufferInternalFormat.Float4 ? SizedInternalFormat.Rgba32f : (internalFormat== BufferInternalFormat.Byte4 ? SizedInternalFormat.Rgba8i : SizedInternalFormat.Rgba32i), BufferHandle);
+                device.TexBuffer(TextureBufferTarget.TextureBuffer,  ToInternalFormat(internalFormat), BufferHandle);
             }
         }
 
@@ -95,10 +121,10 @@ namespace TheAvaloniaOpenGL.Resources
         private BufferUsageHint UsageHint =>
             IsStructuredBuffer ? BufferUsageHint.DynamicDraw : BufferUsageHint.StaticDraw;
 
-        public unsafe void UpdateBuffer(T[] newData)
+        public unsafe void UpdateBuffer(Span<T> newData)
         {
             device.BindBuffer(GlBufferType, BufferHandle);
-            if (Length < newData.Length || true)
+            if (true || Length < newData.Length)
             {
                 fixed (void* pdata = newData)
                     device.BufferData(GlBufferType, new IntPtr(newData.Length * Utilities.SizeOf<T>()), new IntPtr(pdata), UsageHint);
@@ -109,13 +135,12 @@ namespace TheAvaloniaOpenGL.Resources
                 fixed (void* pdata = newData)
                     device.BufferSubData(GlBufferType, IntPtr.Zero, new IntPtr(newData.Length * Utilities.SizeOf<T>()), new IntPtr(pdata));
             }
-            device.BindBuffer(GlBufferType, 0);
         }
         
         public unsafe void UpdateBuffer(ref T newData)
         {
             device.BindBuffer(GlBufferType, BufferHandle);
-            if (Length < 1 || true)
+            if (true || Length < 1)
             {
                 fixed (void* pdata = &newData)
                     device.BufferData(GlBufferType, new IntPtr(Utilities.SizeOf<T>()), new IntPtr(pdata), UsageHint);
@@ -124,7 +149,6 @@ namespace TheAvaloniaOpenGL.Resources
             else
                 fixed (void* pdata = &newData)
                     device.BufferSubData(GlBufferType, IntPtr.Zero, new IntPtr(Utilities.SizeOf<T>()), new IntPtr(pdata));
-            device.BindBuffer(GlBufferType, 0);
         }
 
         private static BufferTarget BufferTypeToBindFlags(BufferTypeEnum bufferType)
@@ -139,7 +163,7 @@ namespace TheAvaloniaOpenGL.Resources
                     else
                     {
                         throw new Exception("Those buffer requires Open GL >= 4.3, but we are limited to 4.1 only :|");
-                        return BufferTarget.ShaderStorageBuffer;   
+                        //return BufferTarget.ShaderStorageBuffer;
                     }
                 case BufferTypeEnum.Vertex:
                     return BufferTarget.ArrayBuffer;

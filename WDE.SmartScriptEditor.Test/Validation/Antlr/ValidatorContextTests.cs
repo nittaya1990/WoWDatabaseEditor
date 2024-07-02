@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics.CodeAnalysis;
+using System.Numerics;
 using NUnit.Framework;
 using WDE.Common.Database;
 using WDE.SmartScriptEditor.Validation;
@@ -30,6 +31,13 @@ namespace WDE.SmartScriptEditor.Test.Validation.Antlr
             Assert.True(new SmartValidator($"event.param(2) == 4").Evaluate(context));
             Assert.True(new SmartValidator($"event.param(3) == 6").Evaluate(context));
             Assert.True(new SmartValidator($"event.param(4) == 8").Evaluate(context));
+        }
+        
+        [Test]
+        public void TestEventFlags()
+        {
+            Assert.True(new SmartValidator($"(event.flags & 1) == 1").Evaluate(context));
+            Assert.True(new SmartValidator($"(event.flags & 2) == 0").Evaluate(context));
         }
         
         [Test]
@@ -92,7 +100,8 @@ namespace WDE.SmartScriptEditor.Test.Validation.Antlr
             public int ActionParametersCount => 6;
             public int ActionSourceParametersCount => 3;
             public int ActionTargetParametersCount => 3;
-            
+            public long GetEventFlags() => 5;
+
             public long GetEventParameter(int index)
             {
                 if (index < 0 || index >= EventParametersCount)
@@ -128,6 +137,11 @@ namespace WDE.SmartScriptEditor.Test.Validation.Antlr
             public long GetTargetType()
             {
                 return 1;
+            }
+
+            public Vector4 GetTargetPosition()
+            {
+                return Vector4.Zero;
             }
         }
     }

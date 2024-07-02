@@ -3,18 +3,25 @@ using System.Collections.Generic;
 using System.IO;
 using WDE.Common.Services;
 using WDE.DbcStore.FastReader;
+using WDE.Module.Attributes;
 
 namespace WDE.DbcStore.Spells.Wrath
 {
-    public class WrathSpellService : ISpellService
+    public class WrathSpellService : IDbcSpellService, IDbcSpellLoader
     {
         private Dictionary<uint, SpellCastTime> spellCastTimes = new();
-        private Dictionary<uint, SpellStructure> spells = new();
-        
-        public void Load(string path)
+        private SpellStructure[] spells = null!;
+        private Dictionary<uint, int> spellIndices = new();
+        private readonly DatabaseClientFileOpener opener;
+
+        public WrathSpellService(DatabaseClientFileOpener opener)
         {
-            var opener = new DatabaseClientFileOpener();
-            
+            this.opener = opener;
+            spells = Array.Empty<SpellStructure>();
+        }
+        
+        public void Load(string path, DBCLocales dbcLocales)
+        {
             foreach (var row in opener.Open(Path.Join(path, "SpellCastTimes.dbc")))
             {
                 var id = row.GetUInt(0);
@@ -30,11 +37,16 @@ namespace WDE.DbcStore.Spells.Wrath
                     MinimumMs = minimumMs
                 };
             }
-            
-            foreach (var row in opener.Open(Path.Join(path, "Spell.dbc")))
+            var dbc = opener.Open(Path.Join(path, "Spell.dbc"));
+            spells = new SpellStructure[dbc.RecordCount];
+            int j = 0;
+            foreach (var row in dbc)
             {
                 int i = 0;
-                SpellStructure spell = new();
+                var id = row.GetUInt(0);
+                ref SpellStructure spell = ref spells[j];
+                spellIndices[id] = j;
+                j++;
                 
                 spell.Id = row.GetUInt(i++);
                 spell.Category = row.GetUInt(i++);
@@ -160,10 +172,21 @@ namespace WDE.DbcStore.Spells.Wrath
                 spell.SpellIconId = row.GetUInt(i++);
                 spell.ActiveIconId = row.GetUInt(i++);
                 spell.SpellPriority = row.GetUInt(i++);
-                spell.Name = row.GetString(i++);
-                spell.NameSubtext = row.GetString(i++);
-                spell.Description = row.GetString(i++);
-                spell.AuraDescription = row.GetString(i++);
+                spell.Name = row.GetString(i + (int)dbcLocales);
+                i += 16;
+                spell.NameLangMask = row.GetUInt(i++);
+
+                spell.NameSubtext = row.GetString(i + (int)dbcLocales);
+                i += 16;
+                spell.NameLangMask = row.GetUInt(i++);
+
+                spell.Description = row.GetString(i + (int)dbcLocales);
+                i += 16;
+                spell.NameLangMask = row.GetUInt(i++);
+
+                spell.AuraDescription = row.GetString(i + (int)dbcLocales);
+                i += 16;
+                spell.NameLangMask = row.GetUInt(i++);
                 spell.ManaCostPct = row.GetUInt(i++);
                 spell.StartRecoveryCategory = row.GetUInt(i++);
                 spell.StartRecoveryTime = row.GetUInt(i++);
@@ -197,8 +220,6 @@ namespace WDE.DbcStore.Spells.Wrath
 
                 if (spell.CastingTimeIndex != 0 && spellCastTimes.TryGetValue(spell.CastingTimeIndex, out var castTime))
                     spell.CastingTime = castTime;
-                
-                spells[spell.Id] = spell;
             }
             
             foreach (var row in opener.Open(Path.Join(path, "SkillLineAbility.dbc")))
@@ -210,20 +231,27 @@ namespace WDE.DbcStore.Spells.Wrath
                 if (!Exists(spellId))
                     continue;
                 
-                spells[spellId].SkillLine = skillLine;
+                spells[spellIndices[spellId]].SkillLine = skillLine;
             }
+            
+            Changed?.Invoke(this);
         }
         
         public bool Exists(uint spellId)
         {
-            return spells.ContainsKey(spellId);
+            return spellIndices.ContainsKey(spellId);
         }
 
-        public T GetAttributes<T>(uint spellId) where T : Enum
-        {
+        public int SpellCount => spells.Length;
 
-            if (!spells.TryGetValue(spellId, out var spell))
+        public uint GetSpellId(int index) => spells[index].Id;
+
+        public T GetAttributes<T>(uint spellId) where T : unmanaged, Enum
+        {
+            if (spellIndices.TryGetValue(spellId, out var spellIndex))
                 return default;
+
+            ref readonly var spell = ref spells[spellIndex];
 
             // kinda unnecessary boxing :/
             if (typeof(T) == typeof(SpellAttr0))
@@ -255,60 +283,98 @@ namespace WDE.DbcStore.Spells.Wrath
 
         public uint? GetSkillLine(uint spellId)
         {
-            if (spells.TryGetValue(spellId, out var spell))
-                return spell.SkillLine;
+            if (spellIndices.TryGetValue(spellId, out var spellIndex))
+                return spells[spellIndex].SkillLine;
             return null;
         }
 
         public uint? GetSpellFocus(uint spellId)
         {
-            if (spells.TryGetValue(spellId, out var spell))
-                return spell.RequiresSpellFocus == 0 ? null : spell.RequiresSpellFocus;
+            if (spellIndices.TryGetValue(spellId, out var spellIndex))
+                return spells[spellIndex].RequiresSpellFocus == 0 ? null : spells[spellIndex].RequiresSpellFocus;
             return null;
         }
 
         public TimeSpan? GetSpellCastingTime(uint spellId)
         {
-            if (spells.TryGetValue(spellId, out var spell))
-                return spell.CastingTime == null ? null : TimeSpan.FromMilliseconds(Math.Max(spell.CastingTime.BaseTimeMs, spell.CastingTime.MinimumMs));
+            if (spellIndices.TryGetValue(spellId, out var spellIndex))
+                return spells[spellIndex].CastingTime == null ? null : TimeSpan.FromMilliseconds(Math.Max(spells[spellIndex].CastingTime!.BaseTimeMs, spells[spellIndex].CastingTime!.MinimumMs));
             return null;
         }
 
+        public TimeSpan? GetSpellDuration(uint spellId)
+        {
+            return null;
+        }
+
+        public TimeSpan? GetSpellCategoryRecoveryTime(uint spellId)
+        {
+            return null;
+        }
+
+        public string GetName(uint spellId)
+        {
+            if (spellIndices.TryGetValue(spellId, out var spellIndex))
+                return spells[spellIndex].Name;
+            return "Unknown";
+        }
+
+        public event Action<ISpellService>? Changed;
+
         public string? GetDescription(uint spellId)
         {
-            if (spells.TryGetValue(spellId, out var spell))
-                return string.IsNullOrEmpty(spell.Description) ? null : spell.Description;
+            if (spellIndices.TryGetValue(spellId, out var spellIndex))
+                return string.IsNullOrEmpty(spells[spellIndex].Description) ? null : spells[spellIndex].Description;
             return null;
         }
 
         public int GetSpellEffectsCount(uint spellId)
         {
-            if (spells.TryGetValue(spellId, out var spell))
-                return spell.Effect[0] == SpellEffectType.None ? 0 :
-                    (spell.Effect[1] == SpellEffectType.None ? 1 : 
-                        (spell.Effect[2] == SpellEffectType.None ? 2 : 3));
+            if (spellIndices.TryGetValue(spellId, out var spellIndex))
+                return spells[spellIndex].Effect[0] == SpellEffectType.None ? 0 :
+                    (spells[spellIndex].Effect[1] == SpellEffectType.None ? 1 : 
+                        (spells[spellIndex].Effect[2] == SpellEffectType.None ? 2 : 3));
             return 0;
+        }
+
+        public SpellAuraType GetSpellAuraType(uint spellId, int effectIndex)
+        {
+            return SpellAuraType.None;
         }
 
         public SpellEffectType GetSpellEffectType(uint spellId, int index)
         {
-            if (spells.TryGetValue(spellId, out var spell))
-                return spell.Effect[index];
+            if (spellIndices.TryGetValue(spellId, out var spellIndex))
+                return spells[spellIndex].Effect[index];
             return SpellEffectType.None;
+        }
+
+        public SpellTargetFlags GetSpellTargetFlags(uint spellId)
+        {
+            return SpellTargetFlags.None;
         }
 
         public (SpellTarget, SpellTarget) GetSpellEffectTargetType(uint spellId, int index)
         {
-            if (spells.TryGetValue(spellId, out var spell))
-                return ((SpellTarget)spell.ImplicitTargetA[index], (SpellTarget)spell.ImplicitTargetB[index]);
+            if (spellIndices.TryGetValue(spellId, out var spellIndex))
+                return ((SpellTarget)spells[spellIndex].ImplicitTargetA[index], (SpellTarget)spells[spellIndex].ImplicitTargetB[index]);
             return (SpellTarget.NoTarget, SpellTarget.NoTarget);
         }
 
         public uint GetSpellEffectMiscValueA(uint spellId, int index)
         {
-            if (spells.TryGetValue(spellId, out var spell))
-                return spell.EffectMiscValue[index];
+            if (spellIndices.TryGetValue(spellId, out var spellIndex))
+                return spells[spellIndex].EffectMiscValue[index];
             return 0;
         }
+
+        public uint GetSpellEffectTriggerSpell(uint spellId, int index)
+        {
+            if (spellIndices.TryGetValue(spellId, out var spellIndex))
+                return spells[spellIndex].EffectTriggerSpell[index];
+            return 0;
+        }
+
+        public DBCVersions Version => DBCVersions.WOTLK_12340;
     }
 }

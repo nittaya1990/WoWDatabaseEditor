@@ -5,24 +5,28 @@ namespace WDE.Common.Types
 {
     public readonly struct ImageUri
     {
-        public readonly Assembly? Assembly;
-        public readonly string Uri;
+        public string? Uri { get; }
         
-        public ImageUri(Assembly assembly, string relativePath)
+        public ImageUri(string uri)
         {
-            Assembly = assembly;
-            Uri = relativePath;
+            Uri = uri;
         }
-        
-        public ImageUri(string relativePath)
+
+        public static ImageUri Empty { get; } = new ImageUri("Icons/empty.png");
+
+        public static bool operator ==(ImageUri left, ImageUri right)
         {
-            Assembly = null;
-            Uri = relativePath;
+            return left.Equals(right);
         }
-        
+
+        public static bool operator !=(ImageUri left, ImageUri right)
+        {
+            return !left.Equals(right);
+        }
+
         public bool Equals(ImageUri other)
         {
-            return Equals(Assembly, other.Assembly) && Uri == other.Uri;
+            return Uri == other.Uri;
         }
 
         public override bool Equals(object? obj)
@@ -32,7 +36,12 @@ namespace WDE.Common.Types
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(Assembly, Uri);
+            return Uri?.GetHashCode() ?? 0;
+        }
+
+        public override string ToString()
+        {
+            return Uri ?? "(-)";
         }
     }
 }

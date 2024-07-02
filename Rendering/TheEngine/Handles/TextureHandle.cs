@@ -3,7 +3,11 @@
     public struct TextureHandle
     {
         internal int Handle { get; }
+        public bool IsEmpty => Handle == 0;
 
+        public IntPtr ToRawIntPtr() => new IntPtr(Handle);
+        public static TextureHandle FromIntPtr(IntPtr ptr) => new TextureHandle(ptr.ToInt32());
+        
         public bool Equals(TextureHandle other)
         {
             return Handle == other.Handle;

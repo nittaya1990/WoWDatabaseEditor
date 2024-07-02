@@ -11,8 +11,9 @@ using Avalonia.Controls.Templates;
 using Avalonia.Data;
 using Avalonia.Data.Converters;
 using Avalonia.Layout;
+using AvaloniaStyles.Converters;
 using FuzzySharp;
-using JetBrains.Annotations;
+using WDE.MVVM;
 using WDE.MVVM.Observable;
 
 namespace AvaloniaStyles.Controls
@@ -21,13 +22,13 @@ namespace AvaloniaStyles.Controls
     {
         public static EnumToIntConverter Instance { get; } = new();
         
-        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         {
             var val = System.Convert.ToUInt32(value);
             return $"{value} ({val})";
         }
 
-        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         {
             throw new NotImplementedException();
         }
@@ -55,11 +56,10 @@ namespace AvaloniaStyles.Controls
             return type.GetCustomAttribute<FlagsAttribute>() != null;
         }
 
-        internal sealed class Option : INotifyPropertyChanged
+        internal sealed class Option : ObservableBase, INotifyPropertyChanged
         {
             private readonly Type type;
             private readonly WeakReference<CompletionComboBox> completionBoxReference;
-            private IDisposable? disposable;
 
             public Option(object enumValue, Type type, CompletionComboBox combo, string text)
             {
@@ -70,7 +70,6 @@ namespace AvaloniaStyles.Controls
                 EnumInteger = Convert.ToUInt32(enumValue);
 
                 TextWithNumber = $"{Text} {EnumInteger}";
-                subscribed = 0;
             }
 
             public string TextWithNumber { get; }
@@ -88,7 +87,7 @@ namespace AvaloniaStyles.Controls
                     if (completionBoxReference.TryGetTarget(out var completionBox))
                     {
                         var current = Convert.ToUInt32(completionBox.SelectedItem!);
-                        return (current & EnumInteger) > 0;                        
+                        return EnumInteger == 0 && current == 0 || EnumInteger > 0 && (current & EnumInteger) == EnumInteger;                        
                     }
 
                     return false;
@@ -99,55 +98,27 @@ namespace AvaloniaStyles.Controls
                     {
                         var current = Convert.ToUInt32(completionBox.SelectedItem!);
                         if (value)
-                            completionBox.SelectedItem = Enum.ToObject(type, current | EnumInteger);
+                        {
+                            if (EnumInteger == 0)
+                                completionBox.SelectedItem = Enum.ToObject(type, 0);
+                            else
+                                completionBox.SelectedItem = Enum.ToObject(type, current | EnumInteger);
+                        }
                         else
                             completionBox.SelectedItem = Enum.ToObject(type, current & ~EnumInteger);
                     }
                 }
             }
 
-            private event PropertyChangedEventHandler? PropertyChanged;
-
-            private int subscribed;
-            
             event PropertyChangedEventHandler? INotifyPropertyChanged.PropertyChanged
             {
-                add
-                {
-                    if (!completionBoxReference.TryGetTarget(out var completionBox))
-                        return;
-                    
-                    subscribed++;
-                    PropertyChanged += value;
-                    if (subscribed > 0)
-                    {
-                        if (disposable != null)
-                            throw new Exception();
-                        disposable = completionBox.GetObservable(CompletionComboBox.SelectedItemProperty).SubscribeAction(_ =>
-                        {
-                            OnPropertyChanged(nameof(IsChecked));
-                        });
-                    }
-                }
-                remove
-                {
-                    if (!completionBoxReference.TryGetTarget(out _))
-                        return;
-                    
-                    PropertyChanged -= value;
-                    subscribed--;
-                    if (subscribed == 0)
-                    {
-                        disposable?.Dispose();
-                        disposable = null;
-                    }
-                }
+                add => PropertyChanged += value;
+                remove => PropertyChanged -= value;
             }
 
-            [NotifyPropertyChangedInvocator]
-            private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+            public void RaiseIsChecked(CompletionComboBox combo)
             {
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+                RaisePropertyChanged(nameof(IsChecked));
             }
         }
         
@@ -158,8 +129,13 @@ namespace AvaloniaStyles.Controls
                 if (args.NewValue is not Type type)
                     return;
 
-                var values = Enum.GetValues(type).Cast<object>().Zip(Enum.GetNames(type), (val, name) => new Option(val, type, combo, name)).ToList();
-                combo.AsyncPopulator = async (str, _) =>
+                var values = Enum.GetValuesAsUnderlyingType(type).Cast<object>().Zip(Enum.GetNames(type), (val, name) => new Option(val, type, combo, name)).ToList();
+                combo.GetObservable(CompletionComboBox.SelectedItemProperty).SubscribeAction(_ =>
+                {
+                    foreach (var val in values)
+                        val.RaiseIsChecked(combo);
+                });
+                combo.AsyncPopulator = async (items, str, _) =>
                 {
                     if (string.IsNullOrEmpty(str))
                         return values;
@@ -183,8 +159,14 @@ namespace AvaloniaStyles.Controls
                     combo.ButtonItemTemplate = new FuncDataTemplate(_ => true, (_, _) => new TextBlock() { [!TextBlock.TextProperty] = new Binding(".") }, true);
                     combo.ItemTemplate = new FuncDataTemplate(_ => true, (_, _) =>
                     {
-                        var panel = new StackPanel() { Orientation = Orientation.Horizontal, Margin = new Thickness(7,5,7,5)};
-                        panel.Children.Add(new TextBlock(){Width = 80, Padding = new Thickness(0,0,3,0), [!TextBlock.TextProperty] = new Binding("EnumInteger")});
+                        var panel = new StackPanel()
+                        {
+                            Orientation = Orientation.Horizontal,
+                            Margin = new Thickness(7,5,7,5)
+                        };
+                        panel.Children.Add(new TextBlock(){Width = 80, 
+                            Padding = new Thickness(0,0,3,0),
+                            [!TextBlock.TextProperty] = new Binding("EnumInteger")});
                         panel.Children.Add(new TextBlock(){[!TextBlock.TextProperty] = new Binding("Text")});
                         var checkBox = new CheckBox
                         { 
@@ -193,7 +175,8 @@ namespace AvaloniaStyles.Controls
                             Padding = new Thickness(3,1,3,1),
                             VerticalAlignment = VerticalAlignment.Stretch,
                             HorizontalAlignment = HorizontalAlignment.Stretch,
-                            [~ToggleButton.IsCheckedProperty] = new Binding("IsChecked", BindingMode.TwoWay)
+                            [~ToggleButton.IsCheckedProperty] = new Binding("IsChecked", BindingMode.TwoWay),
+                            [!ToolTip.TipProperty] = new Binding("EnumInteger") {Converter = IntToHexStringConverter.Instance}
                         };
 
                         return checkBox;

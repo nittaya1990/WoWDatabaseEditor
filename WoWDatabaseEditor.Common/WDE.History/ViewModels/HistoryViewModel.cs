@@ -1,5 +1,6 @@
 ﻿using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using DynamicData.Binding;
 using Prism.Events;
 using Prism.Mvvm;
 using WDE.Common.Events;
@@ -12,7 +13,7 @@ namespace WDE.HistoryWindow.ViewModels
 {
     public class HistoryEvent
     {
-        public string Name { get; set; }
+        public string Name { get; set; } = "";
         public bool IsFromFuture { get; set; }
     }
 
@@ -22,7 +23,7 @@ namespace WDE.HistoryWindow.ViewModels
     {
         private bool visibility;
 
-        private IUndoRedoWindow previousDocument;
+        private IUndoRedoWindow? previousDocument;
 
         public string UniqueId => "history_view";
         public ToolPreferedPosition PreferedPosition => ToolPreferedPosition.Right;
@@ -50,11 +51,11 @@ namespace WDE.HistoryWindow.ViewModels
                     doc.History.Past.CollectionChanged += HistoryCollectionChanged;
                     doc.History.Future.CollectionChanged += HistoryCollectionChanged;
 
-                    HistoryCollectionChanged(null, null);
+                    HistoryCollectionChanged(null, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
                 });
         }
 
-        public ObservableCollection<HistoryEvent> Items { get; set; } = new();
+        public ObservableCollectionExtended<HistoryEvent> Items { get; set; } = new();
 
         public string Title => "History";
 
@@ -71,10 +72,11 @@ namespace WDE.HistoryWindow.ViewModels
             set => SetProperty(ref visibility, value);
         }
 
-        private void HistoryCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
+        private void HistoryCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
         {
+            using var _ = Items.SuspendNotifications();
             Items.Clear();
-            if (previousDocument.History == null)
+            if (previousDocument?.History == null)
                 return;
             
             foreach (IHistoryAction past in previousDocument.History.Past)

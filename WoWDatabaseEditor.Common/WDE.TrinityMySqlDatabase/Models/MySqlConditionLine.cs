@@ -26,7 +26,11 @@ namespace WDE.TrinityMySqlDatabase.Models
 
         [Column(Name = "ElseGroup")]
         [PrimaryKey]
-        public int ElseGroup { get; set; }
+        public int ElseGroup { get; init; }
+
+        public int ConditionIndex { get; set; }
+
+        public int ConditionParent { get; set; }
 
         [Column(Name = "ConditionTypeOrReference")]
         [PrimaryKey]
@@ -38,15 +42,19 @@ namespace WDE.TrinityMySqlDatabase.Models
 
         [Column(Name = "ConditionValue1")]
         [PrimaryKey]
-        public int ConditionValue1 { get; set; }
+        public long ConditionValue1 { get; set; }
 
         [Column(Name = "ConditionValue2")]
         [PrimaryKey]
-        public int ConditionValue2 { get; set; }
+        public long ConditionValue2 { get; set; }
 
         [Column(Name = "ConditionValue3")]
         [PrimaryKey]
-        public int ConditionValue3 { get; set; }
+        public long ConditionValue3 { get; set; }
+        
+        public long ConditionValue4 { get; set; }
+
+        public virtual string ConditionStringValue1 { get; set; } = "";
 
         [Column(Name = "NegativeCondition")]
         [PrimaryKey]
@@ -56,21 +64,17 @@ namespace WDE.TrinityMySqlDatabase.Models
         public string? Comment { get; set; } = "";
 
         public MySqlConditionLine() { }
+    }
 
-        public MySqlConditionLine(IConditionLine otherLine)
+    [ExcludeFromCodeCoverage]
+    [Table(Name = "conditions")]
+    public class MySqlConditionLineMaster : MySqlConditionLine
+    {
+        [Column(Name = "ConditionStringValue1")]
+        public override string ConditionStringValue1
         {
-            SourceType = otherLine.SourceType;
-            SourceGroup = otherLine.SourceGroup;
-            SourceEntry = otherLine.SourceEntry;
-            SourceId = otherLine.SourceId;
-            ElseGroup = otherLine.ElseGroup;
-            ConditionType = otherLine.ConditionType;
-            ConditionTarget = otherLine.ConditionTarget;
-            ConditionValue1 = otherLine.ConditionValue1;
-            ConditionValue2 = otherLine.ConditionValue2;
-            ConditionValue3 = otherLine.ConditionValue3;
-            NegativeCondition = otherLine.NegativeCondition;
-            Comment = otherLine.Comment;
-        }
+            get;
+            set;
+        } = "";
     }
 }

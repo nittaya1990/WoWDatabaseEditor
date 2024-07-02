@@ -13,27 +13,29 @@
              SizeToContent="WidthAndHeight"
              MaxWidth="500"
              WindowStartupLocation="CenterOwner"
-             d:DataContext="{d:DesignInstance messageBoxService:MessageBoxViewModelDesignModel}"
              Background="{DynamicResource MenuDefaultBackground}">
     <controls:BaseMessageBoxWindow.Image>
         <Image Source="../../Icon.png"></Image>
     </controls:BaseMessageBoxWindow.Image>
     <controls:BaseMessageBoxWindow.KeyBindings>
         <KeyBinding Gesture="Escape" Command="{Binding CancelButtonCommand}" />
+        <KeyBinding Gesture="Y" Command="{Binding YesButtonCommand}" />
+        <KeyBinding Gesture="N" Command="{Binding NoButtonCommand}" />
     </controls:BaseMessageBoxWindow.KeyBindings>
-    <ItemsPresenter Items="{Binding Buttons}" Name="ButtonsList">
-        <ItemsPresenter.ItemTemplate>
-            <DataTemplate>
-                <Button Content="{Binding Name}" 
+    <ItemsControl KeyboardNavigation.TabNavigation="Continue" ItemsSource="{Binding Buttons}" Name="ButtonsList">
+        <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="messageBoxService:MessageBoxButtonViewModel">
+                <Button Content="{CompiledBinding Name}" 
+                        Classes.primary="{CompiledBinding IsDefault}"
                         utils:FocusUtils.FocusFirst="{Binding IsDefault}"
-                        IsDefault="{Binding IsDefault}" 
-                        Command="{Binding Command}" />
+                        IsDefault="{CompiledBinding IsDefault}" 
+                        Command="{CompiledBinding Command}" />
             </DataTemplate>
-        </ItemsPresenter.ItemTemplate>
-        <ItemsPresenter.ItemsPanel>
+        </ItemsControl.ItemTemplate>
+        <ItemsControl.ItemsPanel>
             <ItemsPanelTemplate>
-                <StackPanel />
+                <StretchStackPanel KeyboardNavigation.TabNavigation="Continue" />
             </ItemsPanelTemplate>
-        </ItemsPresenter.ItemsPanel>
-    </ItemsPresenter>
+        </ItemsControl.ItemsPanel>
+    </ItemsControl>
 </controls:BaseMessageBoxWindow>

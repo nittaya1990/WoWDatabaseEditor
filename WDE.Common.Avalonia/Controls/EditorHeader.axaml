@@ -1,0 +1,47 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="using:WDE.Common.Avalonia.Controls">
+  <Design.PreviewWith>
+    <controls:EditorHeader />
+  </Design.PreviewWith>
+
+  <Styles.Resources>
+    <ColorAwareBoolToBrushConverter x:Key="BoolToBrushConverter" WhenFalseLight="#b51f1f" WhenTrueLight="#326b1a"
+                                    WhenFalseDark="#b86565" WhenTrueDark="#75ad63" />
+  </Styles.Resources>
+  
+  <Style Selector="controls|EditorHeader">
+    <!-- Set Defaults -->
+    <Setter Property="Template">
+      <ControlTemplate>
+        <StackPanel Spacing="5">
+          <EditorHeaderPanel>
+            <TextBlock Foreground="{TemplateBinding Success, Converter={StaticResource BoolToBrushConverter}}"
+                       x:Name="PART_IdTextBlock"
+                       FontSize="12"
+                       VerticalAlignment="Center"
+                       Background="Transparent"
+                       Padding="0,0,5,0" Text="{TemplateBinding Entry, Converter={x:Static ToStringConverter.Instance}}"/>
+
+            <TextBlock Foreground="{TemplateBinding Success, Converter={StaticResource BoolToBrushConverter}}"
+                       x:Name="PART_DisplayNameTextBlock"
+                       TextTrimming="CharacterEllipsis"
+                       FontSize="16"
+                       FontWeight="Bold"
+                       VerticalAlignment="Center"
+                       Background="Transparent"
+                       Padding="0,0,10,0" Text="{TemplateBinding DisplayName}"/>
+
+            <ContentControl ClipToBounds="{TemplateBinding ClipToBounds}" Content="{TemplateBinding ToolBarContent}" />
+
+            <ContentControl Content="{TemplateBinding RightContent}" DockPanel.Dock="Right"></ContentControl>
+          </EditorHeaderPanel>
+          <ContentControl Content="{TemplateBinding BottomContent}" />
+        </StackPanel>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="controls|EditorHeader ToolbarPanel">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+</Styles>

@@ -4,12 +4,27 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading;
 
 namespace Updater
 {
     class Program
     {
+        private static void PrintError(Exception? e, string message)
+        {
+            if (e != null)
+                Console.WriteLine(e.Message);
+            Console.WriteLine("@@@@@@@@@@@@@@@@@");
+            Console.WriteLine("@");
+            Console.WriteLine("@");
+            Console.WriteLine("@    ERROR WHILE INSTALLING THE WoW Database Editor UPDATE");
+            Console.WriteLine("@");
+            Console.WriteLine("@         " + message);
+            Console.WriteLine("@");
+            Console.WriteLine("@@@@@@@@@@@@@@@@@");
+        }
+
         static void Main(string[] args)
         {
             Console.WriteLine();
@@ -33,14 +48,24 @@ namespace Updater
             
             if (!updateFile.Exists)
             {
-                LaunchWowDatabaseEditor(executable);
+                LaunchWowDatabaseEditor(executable, args);
                 return;
             }
 
-            if (!WaitUntilCantWriteExecutable(executable))
+            if (FindOldFiles())
             {
-                LaunchWowDatabaseEditor(executable);
-                Console.WriteLine("Cannot overwrite executable. Canceling update");
+                PrintError(null, "There are some .old files in the editor directory. It means you have some custom changes to the editor files. Commit them or delete manually and run the update.exe again");
+                Thread.Sleep(3000);
+                LaunchWowDatabaseEditor(executable, args.Concat(new[]{"--skip-update"}).ToArray());
+                Console.ReadKey();
+                return;
+            }
+
+            if (!WaitUntilCantWriteExecutable(executable, out var exception))
+            {
+                PrintError(exception, "Can't write the .EXE file. Please close the WoW Database Editor and try again (No update has been installed).");
+                Thread.Sleep(10000);
+                LaunchWowDatabaseEditor(executable, args);
                 return;
             }
 
@@ -54,43 +79,44 @@ namespace Updater
             }
             catch (Exception e)
             {
-                Console.WriteLine(e.Message);
-                Console.WriteLine("@@@@@@@@@@@@@@@@@");
-                Console.WriteLine("@");
-                Console.WriteLine("@");
-                Console.WriteLine("@    ERROR WHILE INSTALLING THE WoW Database Editor UPDATE");
-                Console.WriteLine("@");
-                Console.WriteLine("@         will rollback to the previous version, please try to download the update again");
-                Console.WriteLine("@");
-                Console.WriteLine("@@@@@@@@@@@@@@@@@");
-                Thread.Sleep(4000);
+                PrintError(e, "will rollback to the previous version, please try to download the update again");
                 File.Delete("update.zip");
+                Console.ReadKey();
                 return;
             }
             
             var diff = new DirectoryDiffer().GenerateDiff(dir, temporaryFolder).Where(f => !excludeFiles.Contains(f.FullName)).ToList();
-            foreach (var fileDir in diff)
+            try
             {
-                if (fileDir is DirectoryInfo directory)
-                    directory.Delete(true);
-                else
-                    fileDir.Delete();
-            }
-            
-            temporaryFolder.Delete(true);
-            
-            ZipFile.ExtractToDirectory(updateFile.FullName, dir.FullName, true);
-            File.Delete("update.zip");
+                foreach (var fileDir in diff)
+                {
+                    if (fileDir is DirectoryInfo directory)
+                        directory.Delete(true);
+                    else
+                        fileDir.Delete();
+                }
 
-            LaunchWowDatabaseEditor(executable);
+                temporaryFolder.Delete(true);
+
+                ZipFile.ExtractToDirectory(updateFile.FullName, dir.FullName, true);
+                File.Delete("update.zip");
+
+                LaunchWowDatabaseEditor(executable, args);
+            }
+            catch (Exception e)
+            {
+                PrintError(e, "Unfortunately your installation might be broken now. Please redownload the editor. Sorry.");
+                Console.ReadKey();
+            }
         }
         
-        private static bool WaitUntilCantWriteExecutable(string executable)
+        private static bool WaitUntilCantWriteExecutable(string executable, out Exception? ex)
         {
             int tries = 0;
+            ex = null;
             while (tries < 10)
             {
-                if (TryOpenForWrite(executable))
+                if (TryOpenForWrite(executable, out ex))
                     return true;
                 
                 Thread.Sleep(1000);
@@ -101,15 +127,17 @@ namespace Updater
             return false;
         }
 
-        private static bool TryOpenForWrite(string executable)
+        private static bool TryOpenForWrite(string executable, out Exception? ex)
         {
             try
             {
                 using var f = File.OpenWrite(executable);
+                ex = null;
                 return true;
             }
-            catch (Exception)
+            catch (Exception e)
             {
+                ex = e;
                 return false;
             }
         }
@@ -128,9 +156,34 @@ namespace Updater
             return null;
         }
         
-        private static void LaunchWowDatabaseEditor(string executable)
+        private static void LaunchWowDatabaseEditor(string executable, string[] args)
         {
-            Process.Start(executable);
+            Process.Start(executable, args);
+        }
+
+        private static byte[] CalculateFileMd5(string filename)
+        {
+            using var md5 = MD5.Create();
+            using var stream = File.OpenRead(filename);
+            return md5.ComputeHash(stream);
+        }
+
+        private static bool FindOldFiles()
+        {
+            foreach (var fileName in Directory.EnumerateFiles(Environment.CurrentDirectory, "*.old", SearchOption.AllDirectories))
+            {
+                var regularFileName = fileName.Substring(0, fileName.Length - 4);
+                if (!File.Exists(regularFileName))
+                    continue;
+
+                var @new = CalculateFileMd5(regularFileName);
+                var old = CalculateFileMd5(fileName);
+
+                if (!@new.SequenceEqual(old))
+                    return true;
+            }
+
+            return false;
         }
     }
 }

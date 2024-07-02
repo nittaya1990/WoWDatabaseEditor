@@ -1,15 +1,16 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <OutputType>Library</OutputType>
-        <TargetFramework>net6.0</TargetFramework>
+        <TargetFramework>net8.0</TargetFramework>
         <Configurations>Debug;Release</Configurations>
         <Platforms>AnyCPU</Platforms>
         <Nullable>enable</Nullable>
-        <WarningsAsErrors>nullable</WarningsAsErrors>
+        <WarningsAsErrors>$(WarningsAsErrors),nullable</WarningsAsErrors>
     </PropertyGroup>
     <Import Project="..\Avalonia.props" />
     <ItemGroup>
         <PackageReference Include="Avalonia.Controls.DataGrid" Version="$(AvaloniaVersion)" />
+        <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="7.0.9" />
     </ItemGroup>
     <ItemGroup>
       <ProjectReference Include="..\AvaloniaEdit\src\AvaloniaEdit\AvaloniaEdit.csproj" />
@@ -23,11 +24,14 @@
       <None Update="Resources\*.xml">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>
-      <None Update="Resources\Syntax\sql.xml">
+      <None Update="Resources\Syntax\*.xml">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>
-      <None Update="Resources\Syntax\sql.dark.xml">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      </None>
+    </ItemGroup>
+    <ItemGroup>
+      <Compile Update="Controls\CodeCompletionTextEditor\CodeCompletionTextEditor.axaml.cs">
+        <DependentUpon>BreakpointLogTextBox.axaml</DependentUpon>
+        <SubType>Code</SubType>
+      </Compile>
     </ItemGroup>
 </Project>

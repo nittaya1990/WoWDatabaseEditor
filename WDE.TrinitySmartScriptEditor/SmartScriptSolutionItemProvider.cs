@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using WDE.Common;
@@ -52,11 +53,11 @@ namespace WDE.TrinitySmartScriptEditor
         public bool IsCompatibleWithCore(ICoreVersion core) => 
             core.SmartScriptFeatures.SupportedTypes.Contains(type);
 
-        public abstract Task<ISolutionItem> CreateSolutionItem();
+        public abstract Task<ISolutionItem?> CreateSolutionItem();
     }
 
     [AutoRegisterToParentScopeAttribute]
-    public class SmartScriptCreatureProvider : SmartScriptSolutionItemProvider, IRelatedSolutionItemCreator
+    public class SmartScriptCreatureProvider : SmartScriptSolutionItemProvider, IRelatedSolutionItemCreator, INumberSolutionItemProvider
     {
         private readonly Lazy<ICreatureEntryOrGuidProviderService> creatureEntryProvider;
 
@@ -68,7 +69,7 @@ namespace WDE.TrinitySmartScriptEditor
             this.creatureEntryProvider = creatureEntryProvider;
         }
 
-        public override async Task<ISolutionItem> CreateSolutionItem()
+        public override async Task<ISolutionItem?> CreateSolutionItem()
         {
             int? entry = await creatureEntryProvider.Value.GetEntryFromService();
             if (!entry.HasValue)
@@ -78,7 +79,7 @@ namespace WDE.TrinitySmartScriptEditor
         
         public Task<ISolutionItem?> CreateRelatedSolutionItem(RelatedSolutionItem related)
         {
-            return Task.FromResult<ISolutionItem>(
+            return Task.FromResult<ISolutionItem?>(
                 new SmartScriptSolutionItem((int)related.Entry, SmartScriptType.Creature));
         }
 
@@ -86,10 +87,18 @@ namespace WDE.TrinitySmartScriptEditor
         {
             return related.Type == RelatedSolutionItem.RelatedType.CreatureEntry;
         }
+
+        public Task<ISolutionItem?> CreateSolutionItem(long number)
+        {
+            return Task.FromResult<ISolutionItem?>(
+                new SmartScriptSolutionItem((int)number, SmartScriptType.Creature));
+        }
+
+        public string ParameterName => "CreatureParameter";
     }
 
     [AutoRegisterToParentScopeAttribute]
-    public class SmartScriptGameobjectProvider : SmartScriptSolutionItemProvider, IRelatedSolutionItemCreator
+    public class SmartScriptGameobjectProvider : SmartScriptSolutionItemProvider, IRelatedSolutionItemCreator, INumberSolutionItemProvider
     {
         private readonly Lazy<IGameobjectEntryOrGuidProviderService> goProvider;
 
@@ -101,7 +110,7 @@ namespace WDE.TrinitySmartScriptEditor
             this.goProvider = goProvider;
         }
 
-        public override async Task<ISolutionItem> CreateSolutionItem()
+        public override async Task<ISolutionItem?> CreateSolutionItem()
         {
             int? entry = await goProvider.Value.GetEntryFromService();
             if (!entry.HasValue)
@@ -111,7 +120,7 @@ namespace WDE.TrinitySmartScriptEditor
 
         public Task<ISolutionItem?> CreateRelatedSolutionItem(RelatedSolutionItem related)
         {
-            return Task.FromResult<ISolutionItem>(
+            return Task.FromResult<ISolutionItem?>(
                 new SmartScriptSolutionItem((int)related.Entry, SmartScriptType.GameObject));
         }
 
@@ -119,6 +128,14 @@ namespace WDE.TrinitySmartScriptEditor
         {
             return related.Type == RelatedSolutionItem.RelatedType.GameobjectEntry;
         }
+
+        public Task<ISolutionItem?> CreateSolutionItem(long number)
+        {
+            return Task.FromResult<ISolutionItem?>(
+                new SmartScriptSolutionItem((int)number, SmartScriptType.GameObject));
+        }
+
+        public string ParameterName => "GameobjectParameter";
     }
 
     [AutoRegisterToParentScopeAttribute]
@@ -134,12 +151,12 @@ namespace WDE.TrinitySmartScriptEditor
             this.service = service;
         }
 
-        public override async Task<ISolutionItem> CreateSolutionItem()
+        public override async Task<ISolutionItem?> CreateSolutionItem()
         {
-            int? entry = await service.Value.GetEntryFromService();
+            uint? entry = await service.Value.GetEntryFromService();
             if (!entry.HasValue)
                 return null;
-            return new SmartScriptSolutionItem(entry.Value, SmartScriptType.Quest);
+            return new SmartScriptSolutionItem((int)entry.Value, SmartScriptType.Quest);
         }
     }
 
@@ -156,12 +173,12 @@ namespace WDE.TrinitySmartScriptEditor
             this.service = service;
         }
 
-        public override async Task<ISolutionItem> CreateSolutionItem()
+        public override async Task<ISolutionItem?> CreateSolutionItem()
         {
-            int? entry = await service.Value.GetEntryFromService();
+            uint? entry = await service.Value.GetEntryFromService();
             if (!entry.HasValue)
                 return null;
-            return new SmartScriptSolutionItem(entry.Value, SmartScriptType.Aura);
+            return new SmartScriptSolutionItem((int)entry.Value, SmartScriptType.Aura);
         }
     }
 
@@ -178,12 +195,12 @@ namespace WDE.TrinitySmartScriptEditor
             this.service = service;
         }
 
-        public override async Task<ISolutionItem> CreateSolutionItem()
+        public override async Task<ISolutionItem?> CreateSolutionItem()
         {
-            int? entry = await service.Value.GetEntryFromService();
+            uint? entry = await service.Value.GetEntryFromService();
             if (!entry.HasValue)
                 return null;
-            return new SmartScriptSolutionItem(entry.Value, SmartScriptType.Spell);
+            return new SmartScriptSolutionItem((int)entry.Value, SmartScriptType.Spell);
         }
     }
 
@@ -204,7 +221,7 @@ namespace WDE.TrinitySmartScriptEditor
             this.itemFromListProvider = itemFromListProvider;
         }
 
-        public override async Task<ISolutionItem> CreateSolutionItem()
+        public override async Task<ISolutionItem?> CreateSolutionItem()
         {
             var list = await databaseProvider.Value.GetSmartScriptEntriesByType(SmartScriptType.TimedActionList);
 
@@ -235,7 +252,7 @@ namespace WDE.TrinitySmartScriptEditor
             this.dbcStore = dbcStore;
         }
 
-        public override async Task<ISolutionItem> CreateSolutionItem()
+        public override async Task<ISolutionItem?> CreateSolutionItem()
         {
             var areaTriggers =
                 dbcStore.Value.AreaTriggerStore.ToDictionary(at => at.Key, at => new SelectOption($"Client areatrigger {at.Key}"));
@@ -269,9 +286,9 @@ namespace WDE.TrinitySmartScriptEditor
             this.serverSide = serverSide;
         }
 
-        public override async Task<ISolutionItem> CreateSolutionItem()
+        public override async Task<ISolutionItem?> CreateSolutionItem()
         {
-            var areaTriggers = database.Value.GetAreaTriggerTemplates()
+            var areaTriggers = (await database.Value.GetAreaTriggerTemplatesAsync())
                 .Where(trigger => trigger.IsServerSide == serverSide)
                 .ToDictionary(at => (long)at.Id, at => new SelectOption($"Area trigger {at.Id}"));
 
@@ -282,7 +299,7 @@ namespace WDE.TrinitySmartScriptEditor
         }
     }
     
-    [AutoRegisterToParentScopeAttribute]
+    // [AutoRegisterToParentScopeAttribute]
     public class SmartScriptAreaTriggerEntityListProvider : SmartScriptAreaTriggerEntityListProviderBase
     {
         public SmartScriptAreaTriggerEntityListProvider(
@@ -298,7 +315,7 @@ namespace WDE.TrinitySmartScriptEditor
             false) {}
     }
     
-    [AutoRegisterToParentScopeAttribute]
+    // [AutoRegisterToParentScopeAttribute]
     public class SmartScriptServerSideAreaTriggerEntityListProvider : SmartScriptAreaTriggerEntityListProviderBase
     {
         public SmartScriptServerSideAreaTriggerEntityListProvider(
@@ -312,5 +329,49 @@ namespace WDE.TrinitySmartScriptEditor
             "document_areatrigger_big",
             SmartScriptType.AreaTriggerEntityServerSide,
             true) {}
+    }
+
+    [AutoRegisterToParentScopeAttribute]
+    public class SmartScriptSceneListProvider : SmartScriptSolutionItemProvider
+    {
+        private readonly Lazy<IItemFromListProvider> itemFromListProvider;
+        private readonly Lazy<IDbcStore> dbcStore;
+        private readonly Lazy<IDatabaseProvider> databaseProvider;
+
+        public SmartScriptSceneListProvider(
+            Lazy<IItemFromListProvider> itemFromListProvider,
+            Lazy<IDbcStore> dbcStore,
+            Lazy<IDatabaseProvider> databaseProvider
+        ) : base("Scene Script",
+            "The script from Scene from client database (DBC)",
+            "document_cinematic_big",
+            SmartScriptType.Scene)
+        {
+            this.itemFromListProvider = itemFromListProvider;
+            this.dbcStore = dbcStore;
+            this.databaseProvider = databaseProvider;
+        }
+
+        public override async Task<ISolutionItem?> CreateSolutionItem()
+        {
+            var sceneTemplates = await databaseProvider.Value.GetSceneTemplatesAsync();
+            Dictionary<long, SelectOption> scenes = new();
+            if (sceneTemplates != null)
+            {
+                var sceneNameStore = dbcStore.Value.SceneStore;
+                foreach (var sceneTemplate in sceneTemplates)
+                {
+                    if (sceneNameStore.TryGetValue(sceneTemplate.ScriptPackageId, out var name))
+                        scenes.Add(sceneTemplate.SceneId, new SelectOption($"{name} ({sceneTemplate.ScriptPackageId})"));
+                    else
+                        scenes.Add(sceneTemplate.SceneId, new SelectOption($"unknown name ({sceneTemplate.ScriptPackageId})"));
+                }
+            }
+            long? entry = await itemFromListProvider.Value.GetItemFromList(scenes, false);
+            if (!entry.HasValue)
+                return null;
+
+            return new SmartScriptSolutionItem((int)entry.Value, SmartScriptType.Scene);
+        }
     }
 }

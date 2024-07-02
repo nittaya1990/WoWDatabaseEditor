@@ -1,9 +1,12 @@
 #define PI 3.14159265358979323846
+#define lerp mix
 
 layout (std140) uniform SceneData
 {
 	mat4 view;
 	mat4 projection;
+	mat4 viewInv;
+	mat4 projectionInv;
 	vec4 cameraPos;
 	vec4 lightDir;
 	vec3 lightColor;
@@ -15,12 +18,19 @@ layout (std140) uniform SceneData
 	vec4 secondaryLightDir;
 	vec3 secondaryLightColor;
 	float secondaryLightIntensity;
+
+	float fogStart;
+	float fogEnd;
+	float fogEnabled;
+	float padding4;
+	vec4 fogColor;
 	
 	float screenWidth;
 	float screenHeight;
 	float time;
-	vec3 padding2;
-	float padding3[2];
+	float zNear;
+	float zFar;
+	float padding3[3];
 };
 
 // Voronoi
@@ -111,20 +121,23 @@ float Noise(vec2 UV, float Scale)
 
 
 #ifdef VERTEX_SHADER
-layout (location = 0) in vec4 position;
-layout (location = 1) in vec4 color;
-layout (location = 2) in vec4 normal;
-layout (location = 3) in vec2 uv1;
-layout (location = 4) in vec2 uv2;
+layout (location = 0) in vec3 position;
+layout (location = 1) in vec3 normal;
+layout (location = 2) in vec2 uv1;
+layout (location = 3) in vec2 uv2;
+layout (location = 4) in vec4 color;
+layout (location = 5) in vec4 color2;
 
 layout (std140) uniform ObjectData
 {
 #ifdef Instancing
 	mat4 _model;
 	mat4 _inverseModel;
+	uint _objectIndex;
 #else
 	mat4 model;
 	mat4 inverseModel;
+	uint objectIndex;
 #endif
 };
 
@@ -134,7 +147,7 @@ uniform samplerBuffer InstancingInverseModels;
 #endif
 
 
-#ifdef INSTANCING
+#ifdef Instancing
 #define VERTEX_SETUP_INSTANCING mat4 model = mat4(texelFetch(InstancingModels, gl_InstanceID * 4), texelFetch(InstancingModels, gl_InstanceID * 4 + 1), texelFetch(InstancingModels, gl_InstanceID * 4 + 2), texelFetch(InstancingModels, gl_InstanceID * 4 + 3)); mat4 inverseModel = mat4(texelFetch(InstancingInverseModels, gl_InstanceID * 4), texelFetch(InstancingInverseModels, gl_InstanceID * 4 + 1), texelFetch(InstancingInverseModels, gl_InstanceID * 4 + 2), texelFetch(InstancingInverseModels, gl_InstanceID * 4 + 3)); 
 #else
 #define VERTEX_SETUP_INSTANCING ;
@@ -145,16 +158,65 @@ uniform samplerBuffer InstancingInverseModels;
 
 #ifdef PIXEL_SHADER
 
+layout (std140) uniform ObjectData
+{
+#ifdef Instancing
+	mat4 _model;
+	mat4 _inverseModel;
+	uint _objectIndex;
+#else
+	mat4 model;
+	mat4 inverseModel;
+	uint objectIndex;
+#endif
+};
+
+#ifdef Instancing
+uniform usamplerBuffer ObjectIndices;
+#endif
+
+#ifdef Instancing
+#define PIXEL_SETUP_INSTANCING(T) uint objectIndex = uint(texelFetch(ObjectIndices, T).r); 
+#else
+#define PIXEL_SETUP_INSTANCING(T) ;
+#endif
+
+
 #define ddx(v) dFdx(v)
 #define ddy(v) dFdy(v)
 
+float LinearEyeDepth(float d)
+{
+	return zNear * zFar / (zFar + d * (zNear - zFar));
+}
+
+float Linear01Depth(float d)
+{
+	return (LinearEyeDepth(d) - zNear) / (zFar - zNear);
+}
+
+vec3 NormalBlend(vec3 A, vec3 B)
+{
+	return normalize(vec3(A.rg + B.rg, A.b * B.b));
+}
+
 vec3 lighting(vec3 col, vec3 normal)
 {
-	float diff = max(dot(normal, lightDir.xyz), 0.0);
-	float diff2 = max(dot(normal, secondaryLightDir.xyz), 0.0);
+	float diff = max(dot(-normal, lightDir.xyz), 0.0);
+	float diff2 = max(dot(-normal, secondaryLightDir.xyz), 0.0);
 	vec3 diffuse = diff * lightColor * lightIntensity + diff2 * secondaryLightColor * secondaryLightIntensity;
 	vec3 ambient = ambientColor.rgb;
 	return col * min(diffuse + ambient, vec3(1.2));
 }
 
+vec4 ApplyFog(vec4 color, vec3 worldPosition)
+{
+	float d = distance(cameraPos.xyz, worldPosition);
+
+	float fogFactor = clamp((d - fogStart) / (fogEnd - fogStart), 0.0, 1.0);
+
+	fogFactor = mix(0, fogFactor, fogEnabled);
+	
+	return mix(color, fogColor, fogFactor);
+}
 #endif

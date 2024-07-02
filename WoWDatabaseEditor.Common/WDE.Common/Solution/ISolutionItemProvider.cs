@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using WDE.Common.CoreVersion;
 using WDE.Common.Solution;
@@ -19,8 +20,31 @@ namespace WDE.Common
         bool IsContainer => false;
         bool ShowInQuickStart(ICoreVersion core) => true;
         bool IsCompatibleWithCore(ICoreVersion core);
+        bool ByDefaultHideFromQuickStart => false;
 
         Task<ISolutionItem?> CreateSolutionItem();
+        
+        async Task<IReadOnlyCollection<ISolutionItem>> CreateMultipleSolutionItems()
+        {
+            var item = await CreateSolutionItem();
+            if (item == null)
+                return Array.Empty<ISolutionItem>();
+            return new[] {item};
+        }
+    }
+
+    /// <summary>
+    /// SolutionItemProvider for things that items that are directly related to a single specific table 
+    /// </summary>
+    public interface IRawDatabaseTableSolutionItemProvider : ISolutionItemProvider
+    {
+        string TableName { get; }
+    }
+    
+    public interface INumberSolutionItemProvider : ISolutionItemProvider
+    {
+        Task<ISolutionItem?> CreateSolutionItem(long number);
+        string ParameterName { get; }
     }
 
     [NonUniqueProvider]

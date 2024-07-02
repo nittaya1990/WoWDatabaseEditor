@@ -1,3 +1,5 @@
+using System;
+using System.Linq;
 using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
@@ -5,6 +7,7 @@ using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
 using Avalonia.Data;
 using Avalonia.Input;
+using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 using WDE.DatabaseEditors.Avalonia.Views.MultiRow;
@@ -39,7 +42,14 @@ namespace WDE.DatabaseEditors.Avalonia.Controls
         public static readonly DirectProperty<FastCellViewBase, ICommand?> RemoveTemplateCommandProperty = AvaloniaProperty.RegisterDirect<FastCellViewBase, ICommand?>(nameof(RemoveTemplateCommand), o => o.RemoveTemplateCommand, (o, v) => o.RemoveTemplateCommand = v);
         private ICommand? duplicateCommand;
         public static readonly DirectProperty<FastCellViewBase, ICommand?> DuplicateCommandProperty = AvaloniaProperty.RegisterDirect<FastCellViewBase, ICommand?>(nameof(DuplicateCommand), o => o.DuplicateCommand, (o, v) => o.DuplicateCommand = v);
+        private ICommand? chooseParameterCommand;
+        public static readonly DirectProperty<FastCellViewBase, ICommand?> ChooseParameterCommandProperty = AvaloniaProperty.RegisterDirect<FastCellViewBase, ICommand?>("ChooseParameterCommand", o => o.ChooseParameterCommand, (o, v) => o.ChooseParameterCommand = v);
         
+        public ICommand? ChooseParameterCommand
+        {
+            get => chooseParameterCommand;
+            set => SetAndRaise(ChooseParameterCommandProperty, ref chooseParameterCommand, value);
+        }
         public ICommand? DuplicateCommand
         {
             get => duplicateCommand;
@@ -124,9 +134,9 @@ namespace WDE.DatabaseEditors.Avalonia.Controls
             contextMenu = new ContextMenu();
             revertMenuItem = new MenuItem() {Header = "Revert value"};
             setNullMenuItem = new MenuItem() {Header = "Set to null"};
-            deleteMenuItem = new MenuItem() {Header = "Delete entity from the editor"};
+            deleteMenuItem = new MenuItem() {Header = "Unload entity from the editor"};
             duplicateMenuItem = new MenuItem() {Header = "Duplicate row"};
-            contextMenu.Items = new Control[]
+            contextMenu.ItemsSource = new Control[]
             {
                 revertMenuItem,
                 setNullMenuItem,
@@ -134,7 +144,7 @@ namespace WDE.DatabaseEditors.Avalonia.Controls
                 duplicateMenuItem,
                 deleteMenuItem
             };
-            contextMenu.MenuClosed += (sender, args) =>
+            contextMenu.Closed += (sender, args) =>
             {
                 revertMenuItem.CommandParameter = null!;
                 setNullMenuItem.CommandParameter = null!;
@@ -152,7 +162,7 @@ namespace WDE.DatabaseEditors.Avalonia.Controls
             base.Render(context);
             if (isModified)
             {
-                context.DrawRectangle(Brushes.Red, null, new Rect(0, 6, 12, 12));
+                context.DrawRectangle(Brushes.Orange, null, new Rect(0, 6, 12, 12));
             }
         }
 
@@ -170,7 +180,7 @@ namespace WDE.DatabaseEditors.Avalonia.Controls
 
         private bool MoveDown(Key key, KeyModifiers modifiers)
         {
-            return key == Key.Down;
+            return key == Key.Down || key == Key.Tab;
         }
         
         private bool MoveUp(Key key, KeyModifiers modifiers)
@@ -178,77 +188,69 @@ namespace WDE.DatabaseEditors.Avalonia.Controls
             return key == Key.Up;
         }
         
-        protected virtual void EndEditing(bool commit = true) {}
+        protected virtual void EndEditing(bool commit = true, bool focus = true) {}
         
         protected void HandleMoveLeftRightUpBottom(KeyEventArgs args, bool leftRight)
         {
             if (MoveLeft(args.Key, args.KeyModifiers, leftRight) || MoveRight(args.Key, args.KeyModifiers, leftRight))
             {
-                var wrapper = (this.GetVisualParent().GetVisualParent().GetVisualParent() as ContentPresenter) ?? this.GetVisualParent() as ContentPresenter;
+                var wrapper = (this.GetVisualParent()?.GetVisualParent()?.GetVisualParent() as ContentPresenter) ?? this.GetVisualParent() as ContentPresenter;
 
-                var itemsPresenter = wrapper?.FindAncestorOfType<ItemsPresenter>();
+                var itemsPresenter = wrapper?.FindAncestorOfType<ItemsControl>();
                 if (itemsPresenter == null)
                     return;
 
-                var index = itemsPresenter.ItemContainerGenerator.IndexFromContainer(wrapper);
+                if (wrapper == null)
+                    return;
+
+                var index = itemsPresenter.IndexFromContainer(wrapper);
 
                 if (MoveLeft(args.Key, args.KeyModifiers, leftRight))
                     index--;
                 else
                     index++;
 
-                var next = itemsPresenter.ItemContainerGenerator.ContainerFromIndex(index)?.FindDescendantOfType<FastCellViewBase>();
-                
+                var next = itemsPresenter.ContainerFromIndex(index)?.FindDescendantOfType<FastCellViewBase>();
+
                 if (next != null)
                 {
                     EndEditing();
-                    FocusManager.Instance.Focus(next, NavigationMethod.Tab);
+                    next.Focus(NavigationMethod.Tab);
                     args.Handled = true;
                 }
             }
 
             if (MoveUp(args.Key, args.KeyModifiers) || MoveDown(args.Key, args.KeyModifiers))
             {
-                var wrapper = this.GetVisualParent() as IControl;
-                var itemsPresenter = wrapper?.VisualParent?.VisualParent as ItemsPresenter;
-                var row = itemsPresenter?.GetVisualParent()?.VisualParent as IControl;
-                var rows = row?.VisualParent?.VisualParent as ItemsPresenter;
+                var wrapper = this.GetVisualParent() as Control;
+                var itemsPresenter = wrapper?.GetLogicalParent() as ItemsControl;
+                var row = itemsPresenter?.GetVisualParent()?.GetVisualParent() as Control;
+                var rows = row?.GetLogicalParent() as ItemsControl;
                 if (wrapper == null || itemsPresenter == null || row == null || rows == null)
                     return;
                 
-                var innerIndex = itemsPresenter.ItemContainerGenerator.IndexFromContainer(wrapper);
-                var rowIndex = rows.ItemContainerGenerator.IndexFromContainer(row);
+                var innerIndex = itemsPresenter.IndexFromContainer(wrapper);
+                var rowIndex = rows.IndexFromContainer(row);
 
                 if (MoveDown(args.Key, args.KeyModifiers))
                     rowIndex++;
                 else
                     rowIndex--;
 
-                var newRow = rows.ItemContainerGenerator.ContainerFromIndex(rowIndex)
-                    ?.VisualChildren[0]?.VisualChildren[0] as ItemsPresenter;
-                newRow ??= rows.ItemContainerGenerator.ContainerFromIndex(rowIndex)
-                    ?.VisualChildren[0]?.VisualChildren[1] as ItemsPresenter;
-                
+                var newRow = rows.ContainerFromIndex(rowIndex).FindDescendantOfType<ItemsControl>();
+
                 if (newRow == null)
                     return;
 
-                var newCell = newRow.ItemContainerGenerator.ContainerFromIndex(innerIndex)?.VisualChildren[0] as FastCellViewBase;
+                var newCell = newRow.ContainerFromIndex(innerIndex)?.FindDescendantOfType<FastCellViewBase>();
 
                 if (newCell == null)
                     return;
-                
-                this.EndEditing();
-                FocusManager.Instance.Focus(newCell, NavigationMethod.Tab);
+
+                this.EndEditing(focus: false);
+                newCell.Focus(NavigationMethod.Tab);
                 args.Handled = true;
             }
-        }
-
-        protected override void OnGotFocus(GotFocusEventArgs e)
-        {
-            var selectableParent = this.FindAncestorOfType<SelectablePanel>();
-            if (selectableParent != null)
-                selectableParent.Select();
-            base.OnGotFocus(e);
         }
 
         protected override void OnPointerPressed(PointerPressedEventArgs e)

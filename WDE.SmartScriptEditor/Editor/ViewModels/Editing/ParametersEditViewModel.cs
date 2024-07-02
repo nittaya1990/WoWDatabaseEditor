@@ -2,14 +2,19 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading.Tasks;
+using System.Windows.Input;
 using DynamicData;
 using DynamicData.Binding;
 using Prism.Commands;
 using WDE.Common.CoreVersion;
 using WDE.Common.Managers;
+using WDE.Common.Parameters;
 using WDE.MVVM.Observable;
 using WDE.MVVM;
 using WDE.Common.Providers;
+using WDE.Common.Tasks;
+using WDE.Common.Utils;
 using WDE.Parameters.Models;
 using WDE.SmartScriptEditor.Models;
 
@@ -17,49 +22,65 @@ namespace WDE.SmartScriptEditor.Editor.ViewModels.Editing
 {
     public class ParametersEditViewModel : ObservableBase, IDialog
     {
+        private readonly IParameterPickerService parameterPickerService;
+
+        public List<CommandKeyBinding> KeyBindings { get; } = new List<CommandKeyBinding>();
+        
+        public long SpecialCopyValue { get; }
+        
         public ParametersEditViewModel(IItemFromListProvider itemFromListProvider,
             ICurrentCoreVersion currentCoreVersion,
-            SmartBaseElement element,
+            IParameterPickerService parameterPickerService,
+            IMainThread mainThread,
+            long specialCopyValue,
+            string title,
+            SmartBaseElement? element,
             bool focusFirst,
-            IEnumerable<(ParameterValueHolder<long> parameter, string name)>? parameters,
-            IEnumerable<(ParameterValueHolder<float> parameter, string name)>? floatParameters = null,
-            IEnumerable<(ParameterValueHolder<string> parameter, string name)>? stringParameters = null,
-            IEnumerable<EditableActionData>? actionParameters = null,
+            SmartEditableGroup editableGroup,
             System.Action? saveAction = null,
             string? focusFirstGroup = null)
         {
+            Title = title;
+            SpecialCopyValue = specialCopyValue;
+            this.parameterPickerService = parameterPickerService;
             HashSet<IEditableParameterViewModel> visible = new();
             SourceList<IEditableParameterViewModel> visibleParameters = new();
             List<IEditableParameterViewModel> allParameters = new();
-            Link(element, e => e.Readable, () => Readable);
-            
-            if (actionParameters != null)
-                foreach (EditableActionData act in actionParameters)
-                    allParameters.Add(new EditableParameterActionViewModel(act));
+            if (element != null)
+                Link(element, e => e.Readable, () => Readable);
+            else
+                Readable = "(multiple)";
 
-            bool first = focusFirst;
-            if (parameters != null)
+            foreach (EditableActionData act in editableGroup.Actions)
             {
-                foreach (var parameter in parameters)
-                {
-                    var canFocusThis = first && (focusFirstGroup == null || focusFirstGroup == parameter.name);
-                    var focusThis = canFocusThis && parameter.parameter.IsUsed;
-                    allParameters.Add(AutoDispose(new EditableParameterViewModel<long>(parameter.parameter, parameter.name, itemFromListProvider, currentCoreVersion){FocusFirst = focusThis}));
-                    if (focusThis)
-                        first = false;
-                }
+                if (act.Value != null)
+                    allParameters.Add(new NumberedEditableParameterActionViewModel(act));
+                else
+                    allParameters.Add(new EditableParameterActionViewModel(act));
             }
 
-            if (floatParameters != null)
-                foreach (var parameter in floatParameters)
-                {
-                    allParameters.Add(AutoDispose(new EditableParameterViewModel<float>(parameter.parameter, parameter.name, itemFromListProvider, currentCoreVersion){FocusFirst = first}));
+            bool first = focusFirst;
+            foreach (var parameter in editableGroup.Parameters)
+            {
+                var context = parameter.parameter.Context;
+                var canFocusThis = first && (focusFirstGroup == null || focusFirstGroup == parameter.name);
+                var focusThis = canFocusThis && parameter.parameter.IsUsed;
+                allParameters.Add(AutoDispose(new EditableParameterViewModel<long>(parameter.parameter, parameter.name, itemFromListProvider, currentCoreVersion, parameterPickerService, context){FocusFirst = focusThis, IsFirstParameter = focusThis}));
+                if (focusThis)
                     first = false;
-                }
+            }
 
-            if (stringParameters != null)
-                foreach (var parameter in stringParameters)
-                    allParameters.Add(AutoDispose(new EditableParameterViewModel<string>(parameter.parameter, parameter.name, itemFromListProvider, currentCoreVersion){FocusFirst=focusFirst}));
+            foreach (var parameter in editableGroup.FloatParameters)
+            {
+                allParameters.Add(AutoDispose(new EditableParameterViewModel<float>(parameter.parameter, parameter.name, itemFromListProvider, currentCoreVersion, parameterPickerService){FocusFirst = first, IsFirstParameter = first}));
+                first = false;
+            }
+
+            foreach (var parameter in editableGroup.StringParameters)
+            {
+                allParameters.Add(AutoDispose(new EditableParameterViewModel<string>(parameter.parameter, parameter.name, itemFromListProvider, currentCoreVersion, parameterPickerService){FocusFirst=first, IsFirstParameter = first}));
+                first = false;
+            }
 
             foreach (IEditableParameterViewModel parameter in allParameters)
             {
@@ -79,14 +100,28 @@ namespace WDE.SmartScriptEditor.Editor.ViewModels.Editing
                     }));
             }
 
+            // so that it doesn't get focused anymore
+            mainThread.Delay(() =>
+            {
+                foreach (var p in allParameters)
+                    p.FocusFirst = false;
+            }, TimeSpan.FromMilliseconds(1));
+
             Accept = new DelegateCommand(() =>
             {
                 BeforeAccept?.Invoke();
                 saveAction?.Invoke();
                 CloseOk?.Invoke();
             });
+            AcceptOpenNext = new DelegateCommand(() =>
+            {
+                RequestOpenNextEdit = true;
+                Accept.Execute(null);
+            });
             Cancel = new DelegateCommand(() => CloseCancel?.Invoke());
 
+            AutoDispose(editableGroup);
+            
             ReadOnlyObservableCollection<Grouping<string, IEditableParameterViewModel>> l;
             visibleParameters
                 .Connect()
@@ -101,20 +136,22 @@ namespace WDE.SmartScriptEditor.Editor.ViewModels.Editing
         public ReadOnlyObservableCollection<Grouping<string, IEditableParameterViewModel>> FilteredParameters { get; }
         public string Readable { get; private set; } = "";
         public bool ShowCloseButtons { get; set; } = true;
-
-        public DelegateCommand Accept { get; }
-        public DelegateCommand Cancel { get; }
+        
+        public ICommand AcceptOpenNext { get; }
+        public ICommand Accept { get; }
+        public ICommand Cancel { get; }
         public int DesiredWidth => 545;
         public int DesiredHeight => 625;
-        public string Title => "Edit";
+        public string Title { get; }
         public bool Resizeable => true;
+        public bool RequestOpenNextEdit { get; private set; }
 
         public event Action? CloseCancel;
         public event Action? CloseOk;
         public event Action? BeforeAccept;
     }
     
-    public class Grouping<TKey, TVal> : ObservableCollectionExtended<TVal>, IGrouping<TKey, TVal>, IDisposable
+    public class Grouping<TKey, TVal> : ObservableCollectionExtended<TVal>, IGrouping<TKey, TVal>, IDisposable where TVal : notnull
     {
         private readonly IDisposable disposable;
         

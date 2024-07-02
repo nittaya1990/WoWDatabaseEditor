@@ -5,7 +5,11 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using SmartFormat.Utilities;
+using WDE.Common;
+using WDE.Common.Exceptions;
+using WDE.Common.Services.MessageBox;
 using WDE.Common.Tasks;
+using WDE.Common.Utils;
 using WDE.Module.Attributes;
 
 namespace WoWDatabaseEditorCore.Tasks
@@ -16,10 +20,12 @@ namespace WoWDatabaseEditorCore.Tasks
     public class TaskRunner : ITaskRunner
     {
         private readonly IMainThread mainThread;
+        private readonly Lazy<IMessageBoxService> messageBoxService;
 
-        public TaskRunner(IMainThread mainThread)
+        public TaskRunner(IMainThread mainThread, Lazy<IMessageBoxService> messageBoxService)
         {
             this.mainThread = mainThread;
+            this.messageBoxService = messageBoxService;
         }
         
         public ObservableCollection<(ITask, ITaskProgress)> Tasks { get; } =
@@ -41,7 +47,8 @@ namespace WoWDatabaseEditorCore.Tasks
 
         private void AssertMainThread()
         {
-            Debug.Assert(SynchronizationContext.Current != null);
+            if (!OperatingSystem.IsBrowser())
+                Debug.Assert(SynchronizationContext.Current != null);
         }
 
         private void ScheduleNow(TaskCompletionSource taskCompletionSource, ITask task, ITaskProgress progress)
@@ -71,9 +78,16 @@ namespace WoWDatabaseEditorCore.Tasks
                             Tasks.Remove((task, progress));
                             if (t.Exception == null)
                                 taskCompletionSource.SetResult();
+                            else if (t.Exception.InnerExceptions.Count == 1 &&
+                                     t.Exception.InnerExceptions[0] is UserException userException)
+                            {
+                                LOG.LogWarning(userException);
+                                messageBoxService.Value.SimpleDialog("Error", "Error", userException.Message);
+                                taskCompletionSource.SetException(userException);
+                            }
                             else
                             {
-                                Console.WriteLine(t.Exception);
+                                LOG.LogError(t.Exception);
                                 taskCompletionSource.SetException(t.Exception);
                             }
                             PeekNextTask();
@@ -93,12 +107,18 @@ namespace WoWDatabaseEditorCore.Tasks
                         progress.ReportFinished();
                         taskCompletionSource.SetResult();
                     }
+                    catch (UserException e)
+                    {
+                        AssertMainThread();
+                        LOG.LogWarning(e);
+                        messageBoxService.Value.SimpleDialog("Error", "Error", e.Message).ListenErrors();
+                        progress.ReportFail();
+                        taskCompletionSource.SetException(e);
+                    }
                     catch (Exception e)
                     {
                         AssertMainThread();
-                        Console.WriteLine(e.Message);
-                        Console.WriteLine(e);
-                        Console.WriteLine(e.StackTrace);
+                        LOG.LogError(e);
                         progress.ReportFail();
                         taskCompletionSource.SetException(e);
                     }
@@ -189,7 +209,8 @@ namespace WoWDatabaseEditorCore.Tasks
 
             protected void InvokeUpdatedEvent()
             {
-                Debug.Assert(SynchronizationContext.Current != null);
+                if (!OperatingSystem.IsBrowser())
+                    Debug.Assert(SynchronizationContext.Current != null);
                 Updated?.Invoke(this);
             }
         }

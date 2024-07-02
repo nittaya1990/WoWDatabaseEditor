@@ -11,7 +11,7 @@ using WoWDatabaseEditorCore.Extensions;
 namespace WoWDatabaseEditorCore.ModulesManagement.Configuration.ViewModels
 {
     [AutoRegister]
-    internal class ModulesConfigViewModel : BindableBase, IConfigurable
+    public class ModulesConfigViewModel : BindableBase, IConfigurable
     {
         public ModulesConfigViewModel(IModulesManager modulesManager)
         {
@@ -32,7 +32,9 @@ namespace WoWDatabaseEditorCore.ModulesManagement.Configuration.ViewModels
             if (conflictingAssembly == null)
                 return "";
 
+            #pragma warning disable IL3000
             return $"Conflicts with {conflictingAssembly.GetName().Name} ({conflictingAssembly.Location})";
+            #pragma warning restore IL3000
         }
 
         public string Name => "Modules";
@@ -43,7 +45,7 @@ namespace WoWDatabaseEditorCore.ModulesManagement.Configuration.ViewModels
         public ConfigurableGroup Group => ConfigurableGroup.Advanced;
     }
 
-    internal class ModuleConfigModel
+    public class ModuleConfigModel
     {
         public ModuleConfigModel(bool isEnabled, string name, bool isLoaded, string details)
         {

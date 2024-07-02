@@ -27,6 +27,7 @@ namespace WDE.SmartScriptEditor.Inspections
                     e.GetParameter(i).HasItems)
                 {
                     if (e.GetParameter(i).Parameter is FlagParameter fp &&
+                        e.GetParameter(i).Value > 0 &&
                         ContainsAllFlags(fp, e.GetParameter(i).Value) != 0)
                     {
                         var unknownFlag = ContainsAllFlags(fp, e.GetParameter(i).Value);
@@ -34,11 +35,11 @@ namespace WDE.SmartScriptEditor.Inspections
                         {
                             Severity = DiagnosticSeverity.Info,
                             Message = $"Parameter `{e.GetParameter(i).Name}` uses non existing flag {unknownFlag}",
-                            Line = e.LineId
+                            Line = e.VirtualLineId
                         }; 
                     }
                     
-                    if (e.GetParameter(i).Value != 0 &&
+                    if (e.GetParameter(i).Value > 0 &&
                         e.GetParameter(i).Parameter is not FlagParameter &&
                         !e.GetParameter(i).Parameter.AllowUnknownItems &&
                         !(e.GetParameter(i).Items?.ContainsKey(e.GetParameter(i).Value) ?? false))
@@ -47,7 +48,7 @@ namespace WDE.SmartScriptEditor.Inspections
                         {
                             Severity = DiagnosticSeverity.Info,
                             Message = $"Parameter `{e.GetParameter(i).Name}` value out of range ({e.GetParameter(i).Value})",
-                            Line = e.LineId
+                            Line = e.VirtualLineId
                         };   
                     }
                 }

@@ -526,6 +526,33 @@ namespace WDE.Common.Services
     {
         PreventJumpingDuringPrecast = 0x1,
     }
+
+    [Flags]
+    public enum SpellTargetFlags : uint
+    {
+        None            = 0x00000000,
+        Unused1        = 0x00000001,               // not used
+        Unit            = 0x00000002,               // pguid
+        UnitRaid       = 0x00000004,               // not sent, used to validate target (if raid member)
+        UnitParty      = 0x00000008,               // not sent, used to validate target (if party member)
+        Item            = 0x00000010,               // pguid
+        SourceLocation = 0x00000020,               // pguid, 3 float
+        DestLocation   = 0x00000040,               // pguid, 3 float
+        UnitEnemy      = 0x00000080,               // not sent, used to validate target (if enemy)
+        UnitAlly       = 0x00000100,               // not sent, used to validate target (if ally) - Used by teaching spells
+        CorpseEnemy    = 0x00000200,               // pguid
+        UnitDead       = 0x00000400,               // not sent, used to validate target (if dead creature)
+        Gameobject      = 0x00000800,               // pguid, used with TARGET_GAMEOBJECT_TARGET
+        TradeItem      = 0x00001000,               // pguid
+        String          = 0x00002000,               // string
+        GameobjectItem = 0x00004000,               // not sent, used with TARGET_GAMEOBJECT_ITEM_TARGET
+        CorpseAlly     = 0x00008000,               // pguid
+        UnitMinipet    = 0x00010000,               // pguid, used to validate target (if non combat pet)
+        GlyphSlot      = 0x00020000,               // used in glyph spells
+        DestTarget     = 0x00040000,               // sometimes appears with DEST_TARGET spells (may appear or not for a given spell)
+        Unused20        = 0x00080000,               // uint32 counter, loop { vec3 - screen position (?), guid }, not used so far
+        UnitPassenger  = 0x00100000,               // guessed, used to validate target (if vehicle passenger)
+    }
     
     public enum SpellTarget
     {
@@ -634,8 +661,8 @@ namespace WDE.Common.Services
         UnitPassenger7                     = 103,
         UnitConeEnemy104                  = 104,
         UnitUnk105                         = 105, // 1 spell
-        DestChannelCaster                  = 106,
-        UnkDestAreaUnk107                = 107, // not enough info - only generic spells avalible
+        DestRandomEntry                  = 106,
+        DestAreaEntryExtra                = 107, // not enough info - only generic spells avalible
         GameobjectCone108                  = 108,
         GameobjectCone109                  = 109,
         UnitConeEntry110                  = 110,
@@ -670,10 +697,10 @@ namespace WDE.Common.Services
         Unk139                              = 139,
         Unk140                              = 140,
         Unk141                              = 141,
-        Unk142                              = 142,
+        DestNearbyEntryOrSelfPos            = 142,
         Unk143                              = 143,
         Unk144                              = 144,
-        Unk145                              = 145,
+        DestNearbyGO                        = 145,
         Unk146                              = 146,
         Unk147                              = 147,
         Unk148                              = 148,
@@ -848,20 +875,38 @@ namespace WDE.Common.Services
         TalentSpecSelect                 = 162,
         RemoveAura                        = 164,
     }
-    
-    [UniqueProvider]
+
     public interface ISpellService
     {
         bool Exists(uint spellId);
-        T GetAttributes<T>(uint spellId) where T : Enum;
+        int SpellCount { get; }
+        uint GetSpellId(int index);
+        string GetName(uint spellId);
+        int GetSpellEffectsCount(uint spellId);
+        SpellAuraType GetSpellAuraType(uint spellId, int effectIndex);
+        SpellEffectType GetSpellEffectType(uint spellId, int index);
+        SpellTargetFlags GetSpellTargetFlags(uint spellId);
+        (SpellTarget a, SpellTarget b) GetSpellEffectTargetType(uint spellId, int index);
+        event Action<ISpellService>? Changed;
+    }
+    
+    [UniqueProvider]
+    public interface IDbcSpellService : ISpellService
+    {
+        T GetAttributes<T>(uint spellId) where T : unmanaged, Enum;
         uint? GetSkillLine(uint spellId);
         uint? GetSpellFocus(uint spellId);
         TimeSpan? GetSpellCastingTime(uint spellId);
+        TimeSpan? GetSpellDuration(uint spellId);
+        TimeSpan? GetSpellCategoryRecoveryTime(uint spellId);
         string? GetDescription(uint spellId);
-        int GetSpellEffectsCount(uint spellId);
-        SpellEffectType GetSpellEffectType(uint spellId, int index);
-        (SpellTarget a, SpellTarget b) GetSpellEffectTargetType(uint spellId, int index);
         uint GetSpellEffectMiscValueA(uint spellId, int index);
+        uint GetSpellEffectTriggerSpell(uint spellId, int index);
+    }
+
+    [UniqueProvider]
+    public interface IDatabaseSpellService : ISpellService
+    {
     }
 
     public static class Extensions

@@ -1,6 +1,7 @@
 using System;
 using System.Linq.Expressions;
 using NUnit.Framework;
+using WDE.Common.Database;
 
 namespace WDE.SqlQueryGenerator.Test
 {
@@ -8,7 +9,7 @@ namespace WDE.SqlQueryGenerator.Test
     {
         public void Test(string? condition, Expression<Func<IRow, bool>> predicate)
         {
-            var query = Queries.Table("abc").Where(predicate).Delete().QueryString;
+            var query = Queries.Table(DatabaseTable.WorldTable("abc")).Where(predicate).Delete().QueryString;
             if (condition == null)
                 Assert.AreEqual("DELETE FROM `abc`;", query);
             else
@@ -74,7 +75,7 @@ namespace WDE.SqlQueryGenerator.Test
         public void TestDeleteSimpleConditionIntConvertUint() => Test("`Id` = 3", r => r.Column<int>("Id") == (uint)3);
         
         [Test]
-        public void TestDeleteSimpleConditionUIntConvertInt() => Test("`Id` = -3", r => r.Column<uint>("Id") == -3);
+        public void TestDeleteSimpleConditionUIntConvertInt() => Test("`Id` = -3", r => r.Column<int>("Id") == -3);
         
         // Simple OR AND
         [Test]
@@ -207,14 +208,14 @@ namespace WDE.SqlQueryGenerator.Test
         [Test]
         public void TestWhereIn()
         {
-            Assert.AreEqual("DELETE FROM `abc` WHERE `a` IN (1, 2);", Queries.Table("abc").WhereIn("a", new int[]{1, 2}).Delete().QueryString);
+            Assert.AreEqual("DELETE FROM `abc` WHERE `a` IN (1, 2);", Queries.Table(DatabaseTable.WorldTable("abc")).WhereIn("a", new int[]{1, 2}).Delete().QueryString);
         }
 
         [Test]
         public void TestWhereInAfterWhere()
         {
             var query = Queries
-                .Table("abc")
+                .Table(DatabaseTable.WorldTable("abc"))
                 .Where(r => r.Column<int>("c") == 1)
                 .WhereIn("a", new int[] { 1, 2 })
                 .Delete()
@@ -235,7 +236,7 @@ namespace WDE.SqlQueryGenerator.Test
         public void TestWhereInAfterWhere2()
         {
             var query = Queries
-                .Table("abc")
+                .Table(DatabaseTable.WorldTable("abc"))
                 .Where(r => r.Column<int>("c") == 1 || r.Column<int>("c") == 2)
                 .WhereIn("a", new int[] { 1, 2 })
                 .Delete()

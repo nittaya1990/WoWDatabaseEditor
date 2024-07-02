@@ -1,13 +1,21 @@
+using Generator.Equals;
 using Newtonsoft.Json;
 
 namespace WDE.DatabaseEditors.Data.Structs
 {
-    public struct DatabaseForeignTableJson
+    [Equatable]
+    public partial struct DatabaseForeignTableJson
     {
+        [DefaultEquality]
         [JsonProperty(PropertyName = "table_name")]
         public string TableName { get; set; }
         
         [JsonProperty(PropertyName = "foreign_key")]
-        public string[] ForeignKeys { get; set; }
+        [OrderedEquality]
+        public ColumnFullName[] ForeignKeys { get; set; }
+
+        [DefaultEquality]
+        [JsonProperty(PropertyName = "autofill_build_column")]
+        public string? AutofillBuildColumn { get; set; }
     }
 }

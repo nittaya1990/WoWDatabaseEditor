@@ -23,6 +23,8 @@ namespace WDE.SmartScriptEditor.Avalonia.Editor.UserControls
                 o => o.DeselectActionsOfDeselectedEventsRequest,
                 (o, v) => o.DeselectActionsOfDeselectedEventsRequest = v);
         
+        public static AvaloniaProperty DirectOpenParameterProperty =
+            AvaloniaProperty.Register<SmartEventView, ICommand>(nameof(DirectOpenParameter));
         
         public static readonly DirectProperty<SmartEventView, ICommand?> DirectEditParameterProperty =
             AvaloniaProperty.RegisterDirect<SmartEventView, ICommand?>(
@@ -51,14 +53,23 @@ namespace WDE.SmartScriptEditor.Avalonia.Editor.UserControls
             set => SetAndRaise(DirectEditParameterProperty, ref directEditParameter, value);
         }
 
+        public ICommand? DirectOpenParameter
+        {
+            get => (ICommand?) GetValue(DirectOpenParameterProperty);
+            set => SetValue(DirectOpenParameterProperty, value);
+        }
+
         protected override void OnEdit()
         {
             EditEventCommand?.Execute(DataContext);
         }
 
-        protected override void OnDirectEdit(object context)
+        protected override void OnDirectEdit(bool controlPressed, object context)
         {
-            DirectEditParameter?.Execute(context);
+            if (controlPressed) 
+                DirectOpenParameter?.Execute(context);
+            else
+                DirectEditParameter?.Execute(context);
         }
         
         protected override void DeselectOthers()
@@ -66,8 +77,8 @@ namespace WDE.SmartScriptEditor.Avalonia.Editor.UserControls
             DeselectActionsOfDeselectedEventsRequest?.Execute(null);
         }
 
-        public static readonly AvaloniaProperty SelectedProperty = AvaloniaProperty.RegisterAttached<SmartEventView, IControl, bool>("Selected");
-        public static bool GetSelected(IControl control) => (bool)control.GetValue(SelectedProperty);
-        public static void SetSelected(IControl control, bool value) => control.SetValue(SelectedProperty, value);
+        public static readonly AvaloniaProperty SelectedProperty = AvaloniaProperty.RegisterAttached<SmartEventView, Control, bool>("Selected");
+        public static bool GetSelected(Control control) => (bool?)control.GetValue(SelectedProperty) ?? false;
+        public static void SetSelected(Control control, bool value) => control.SetValue(SelectedProperty, value);
     }
 }

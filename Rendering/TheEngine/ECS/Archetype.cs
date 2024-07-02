@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Text;
 
 namespace TheEngine.ECS
 {
@@ -32,21 +33,62 @@ namespace TheEngine.ECS
             var typeData = EntityManager.ManagedTypeData<T>();
             n.managedComponents.Add(typeData);
             n.usedManagedComponents = usedManagedComponents;
-            n.usedManagedComponents[(1 << typeData.Index)] = true;
+            n.usedManagedComponents[(int)typeData.Hash] = true;
+
+            EntityManager.InstallArchetype(n);
+            
             return n;
         }
 
         public Archetype WithComponentData<T>() where T : unmanaged, IComponentData
+        {
+            return WithComponentData(typeof(T));
+        }
+        
+        internal Archetype WithComponentData(System.Type t)
         {
             var n = new Archetype(EntityManager);
             n.managedComponents.AddRange(managedComponents);
             n.usedManagedComponents = usedManagedComponents;
 
             n.components.AddRange(components);
-            var typeData = EntityManager.TypeData<T>();
+            var typeData = EntityManager.TypeData(t);
             n.components.Add(typeData);
             n.usedComponents = usedComponents;
-            n.usedComponents[(1 << typeData.Index)] = true;
+            n.usedComponents[(int)typeData.Hash] = true;
+            
+            EntityManager.InstallArchetype(n);
+            
+            return n;
+        }
+
+        public Archetype Includes(Archetype other)
+        {
+            var n = new Archetype(EntityManager);
+            n.managedComponents.AddRange(managedComponents);
+            n.usedManagedComponents = usedManagedComponents;
+            n.components.AddRange(components);
+            n.usedComponents = usedComponents;
+            
+            foreach (var component in other.Components)
+            {
+                if (!n.usedComponents[(int)component.Hash])
+                {
+                    n.components.Add(component);
+                    n.usedComponents[(int)component.Hash] = true;   
+                }
+            }
+            
+            foreach (var component in other.ManagedComponents)
+            {
+                if (!n.usedManagedComponents[(int)component.Hash])
+                {
+                    n.managedComponents.Add(component);
+                    n.usedManagedComponents[(int)component.Hash] = true;   
+                }
+            }
+            
+            EntityManager.InstallArchetype(n);
             return n;
         }
 
@@ -54,6 +96,16 @@ namespace TheEngine.ECS
         {
             return (usedComponents.Data & other.usedComponents.Data) == other.usedComponents.Data &&
                    (usedManagedComponents.Data & other.usedManagedComponents.Data) == other.usedManagedComponents.Data;
+        }
+
+        public override string ToString()
+        {
+            StringBuilder sb = new();
+            foreach (var comp in components)
+                sb.Append(comp.DataType.Name + " + ");
+            foreach (var comp in managedComponents)
+                sb.Append(comp.DataType.Name + " + ");
+            return sb.ToString();
         }
     }
 }

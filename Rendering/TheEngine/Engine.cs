@@ -56,14 +56,10 @@ namespace TheEngine
         
         internal UIManager uiManager { get; }
         public IUIManager Ui => uiManager;
-        
-        private Thread renderThread;
-        
-        private volatile bool isDisposing;
 
         public double TotalTime;
 
-        public Engine(IDevice device, IConfiguration configuration, IWindowHost host)
+        public Engine(IDevice device, IConfiguration configuration, IWindowHost host, bool flipY)
         {
             WindowHost = host;
             //windowHost.Bind(this);
@@ -83,24 +79,29 @@ namespace TheEngine
             materialManager = new MaterialManager(this);
             shaderManager = new ShaderManager(this);
             meshManager = new MeshManager(this);
-            renderManager = new RenderManager(this);
-
             textureManager = new TextureManager(this);
+            renderManager = new RenderManager(this, flipY);
+
             fontManager = new FontManager(this);
             uiManager = new UIManager(this);
         }
-
-        public void Render()
+        
+        public void UpdateGui(float delta)
         {
-            
+            uiManager.UpdateGui(delta);
         }
         
-        public NativeBuffer<T> CreateBuffer<T>(BufferTypeEnum bufferType, int size) where T : unmanaged => Device.CreateBuffer<T>(bufferType, size);
+        public void RenderGUI()
+        {
+            Device.device.Debug("  Rendering GUI");
+            uiManager.Render();
+        }
+        
         public NativeBuffer<T> CreateBuffer<T>(BufferTypeEnum bufferType, ReadOnlySpan<T> data, BufferInternalFormat format = BufferInternalFormat.None) where T : unmanaged => Device.CreateBuffer<T>(bufferType, data, format);
-
+        public NativeBuffer<T> CreateBuffer<T>(BufferTypeEnum bufferType, int size, BufferInternalFormat format = BufferInternalFormat.None) where T : unmanaged => Device.CreateBuffer<T>(bufferType, size, format);
+        
         public void Dispose()
         {
-            isDisposing = true;
             uiManager.Dispose();
             fontManager.Dispose();
             lightManager.Dispose();

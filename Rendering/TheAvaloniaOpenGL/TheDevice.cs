@@ -1,5 +1,4 @@
-﻿using System;
-using OpenGLBindings;
+﻿using OpenGLBindings;
 using SixLabors.ImageSharp.PixelFormats;
 using TheAvaloniaOpenGL.Resources;
 using TheMaths;
@@ -95,10 +94,10 @@ namespace TheAvaloniaOpenGL
             device.ImmediateContext.Rasterizer.State = rasterizerState;*/
         }
 
-        public void DrawIndexed(object indexCount, int v1, int v2)
-        {
-            throw new NotImplementedException();
-        }
+        // public void DrawIndexed(object indexCount, int v1, int v2)
+        // {
+        //     throw new NotImplementedException();
+        // }
 
         // Safe multithread call
         public Sampler CreateSampler(/* todo */)
@@ -108,6 +107,11 @@ namespace TheAvaloniaOpenGL
 
         // Safe multithread call
         public Texture CreateTexture(int width, int height, Rgba32[][] pixels, bool generateMips)
+        {
+            return new Texture(device, pixels, width, height, generateMips);
+        }
+        
+        public unsafe Texture CreateTexture(int width, int height, Rgba32* pixels, bool generateMips)
         {
             return new Texture(device, pixels, width, height, generateMips);
         }
@@ -122,9 +126,9 @@ namespace TheAvaloniaOpenGL
             return new Texture(device, pixels, width, height);
         }
         
-        public Texture CreateTexture(int width, int height, uint[] pixels)
+        public Texture CreateTexture(int width, int height, uint[]? pixels, TextureFormat format = TextureFormat.R8G8B8A8)
         {
-            return new Texture(device, pixels, width, height);
+            return new Texture(device, pixels, width, height, format);
         }
 
         // Safe multithread call
@@ -140,15 +144,21 @@ namespace TheAvaloniaOpenGL
         }
 
         // Safe multithread call
-        public Shader CreateShader(string path, string[] includePaths)
+        public Shader CreateShader(string path, string[] includePaths, bool instanced)
         {
-            return new Shader(device, path, includePaths);
+            return new Shader(device, path, includePaths, instanced);
         }
 
         // Safe multithread call
-        public RenderTexture CreateRenderTexture(int width, int height)
+        internal RenderTexture CreateRenderTexture(int width, int height, int colorAttachments = 1, Texture? depthTexture = null)
         {
-            return new RenderTexture(device, width, height);
+            return new RenderTexture(device, width, height, colorAttachments, depthTexture);
+        }
+
+        // Safe multithread call
+        internal RenderTexture CreateRenderTexture(Texture colorAttachment, Texture depthTexture)
+        {
+            return new RenderTexture(device, colorAttachment, depthTexture);
         }
 
         // Safe multithread call
@@ -177,17 +187,40 @@ namespace TheAvaloniaOpenGL
             //device.ImmediateContext.ClearRenderTargetView(renderTargetView, gray);
         }
 
-        // call only form render thread
-        public void DrawIndexed(int indexCount, int startIndexLocation, int baseVertexLocation)
+        public void DrawLineMesh(int verticesCount, int startLocation)
         {
-            device.DrawElements(PrimitiveType.Triangles, indexCount, DrawElementsType.UnsignedInt, new IntPtr(startIndexLocation * 4));
+            device.DrawArrays(PrimitiveType.Lines, startLocation, new IntPtr(verticesCount));
+        }
+        
+        private DrawElementsType ToOpenGlIndexType(IndexType type, out int bytesSize)
+        {
+            switch (type)
+            {
+                case IndexType.Short:
+                    bytesSize = 2;
+                    return DrawElementsType.UnsignedShort;
+                case IndexType.Int:
+                    bytesSize = 4;
+                    return DrawElementsType.UnsignedInt;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(type), type, null);
+            }
+        }
+        
+        // call only form render thread
+        public void DrawIndexed(int indexCount, int startIndexLocation, int baseVertexLocationBytes, IndexType type)
+        {
+            if (baseVertexLocationBytes == 0)
+                device.DrawElements(PrimitiveType.Triangles, indexCount, ToOpenGlIndexType(type, out var bytesSize), new IntPtr(startIndexLocation * bytesSize));
+            else
+                device.DrawElementsBaseVertex(PrimitiveType.Triangles, indexCount, ToOpenGlIndexType(type, out var bytesSize), new IntPtr(startIndexLocation * bytesSize), baseVertexLocationBytes);
             //device.ImmediateContext.DrawIndexed(indexCount, startIndexLocation, baseVertexLocation);
         }
 
         // call only form render thread
-        public void DrawIndexedInstanced(int indexCountPerInstance, int instanceCount, int startIndexLocation, int baseVertexLocation, int startInstanceLocation)
+        public void DrawIndexedInstanced(int indexCountPerInstance, int instanceCount, int startIndexLocation, int baseVertexLocation, int startInstanceLocation, IndexType type)
         {
-            device.DrawElementsInstanced(PrimitiveType.Triangles, indexCountPerInstance, DrawElementsType.UnsignedInt, new IntPtr(startIndexLocation * 4), instanceCount);
+            device.DrawElementsInstanced(PrimitiveType.Triangles, indexCountPerInstance, ToOpenGlIndexType(type, out var bytesSize), new IntPtr(startIndexLocation * bytesSize), instanceCount);
             //device.ImmediateContext.DrawIndexedInstanced(indexCountPerInstance, instanceCount, startIndexLocation, baseVertexLocation, startInstanceLocation);
         }
 
@@ -196,12 +229,13 @@ namespace TheAvaloniaOpenGL
         /// call only from render thread
         /// </summary>
         /// <param name="renderTexture">render texture or null, then it resets to back buffer</param>
-        public void SetRenderTexture(RenderTexture renderTexture, int destFramebuffer)
+        /// <param name="destFramebuffer"></para>
+        internal void SetRenderTexture(RenderTexture? renderTexture, int destFramebuffer)
         {
             if (renderTexture == null)
                 device.BindFramebuffer(FramebufferTarget.Framebuffer, destFramebuffer);   
             else
-                renderTexture.ActivateFrameBuffer();
+                renderTexture.ActivateFrameBuffer(1);
             //RenderTargetView view = renderTexture == null ? renderTargetView : renderTexture.TargetView;
             //device.ImmediateContext.OutputMerger.SetTargets(depthStencilView, view);
         }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using WDE.Common;
 using WDE.Common.CoreVersion;
 using WDE.Common.Managers;
 using WDE.Common.Services;
@@ -27,7 +28,8 @@ namespace WoWDatabaseEditorCore.Services.ServerIntegration
             IStatusBar statusBar, Lazy<IWindowManager> windowManager,
             IMainThread mainThread,
             ICurrentCoreVersion currentCoreVersion,
-            IEnumerable<IReverseRemoteCommand> reverseRemoteCommands)
+            IEnumerable<IReverseRemoteCommand> reverseRemoteCommands,
+            IEnumerable<IRawReverseRemoteCommand> rawReverseRemoteCommands)
         {
             this.remoteConnectorService = remoteConnectorService;
             this.statusBar = statusBar;
@@ -42,75 +44,53 @@ namespace WoWDatabaseEditorCore.Services.ServerIntegration
              
                 commands.Add(new(){Name = atr.Name, Command = command});
             }
-            
-            if (currentCoreVersion.Current.SupportsReverseCommands)
-                new Thread(BeginFetchLoop).Start();
+
+            foreach (var command in rawReverseRemoteCommands)
+            {
+                var atr = command.GetType().GetCustomAttribute(typeof(ReverseRemoteCommandAttribute), true) as ReverseRemoteCommandAttribute;
+                if (atr == null)
+                    throw new Exception($"Found new ReverseRemoteCommand {command.GetType()}, but it doesn't have ReverseRemoteCommandAttribute, skipping");
+
+                commands.Add(new(){Name = atr.Name, RawCommand = command});
+            }
+
+            remoteConnectorService.EditorCommandReceived += RemoteConnectorService_EditorCommandReceived;
         }
 
-        private void BeginFetchLoop()
+        private void RemoteConnectorService_EditorCommandReceived(string line)
         {
-            while (GlobalApplication.IsRunning)
+            async Task ProcessAsync()
             {
-                var task = SilentInvoke(FetchEditorCommandsRemoteCommand.Instance);
-                task.Wait();
-                string? resp = task.Result;
-
-                if (!string.IsNullOrEmpty(resp))
+                bool anyCmd = false;
+                bool broughtEditorToFront = false;
+                foreach (var cmd in commands)
                 {
-                    bool any = false;
-                    var split = resp.Split("\n");
-                    bool broughtEditorToFront = false;
-                    foreach (var line in split)
+                    if (line.StartsWith(cmd.Name))
                     {
-                        bool anyCmd = false;
-                        foreach (var cmd in commands)
+                        if (line.Length == cmd.Name.Length || line[cmd.Name.Length] == ' ')
                         {
-                            if (line.StartsWith(cmd.Name))
+                            var args = line.Substring(cmd.Name.Length).Trim();
+                            var bringToFront = (cmd.Command?.BringEditorToFront ?? cmd.RawCommand?.BringEditorToFront) ?? false;
+                            if (bringToFront && !broughtEditorToFront)
                             {
-                                if (line.Length == cmd.Name.Length || line[cmd.Name.Length] == ' ')
-                                {
-                                    var args = line.Substring(cmd.Name.Length).Trim();
-                                    if (cmd.Command.BringEditorToFront && !broughtEditorToFront)
-                                    {
-                                        mainThread.Dispatch(() => windowManager.Value.Activate());
-                                        broughtEditorToFront = true;
-                                    }
-                                    mainThread.Dispatch(() => cmd.Command.Invoke(new CommandArguments(args))).Wait();
-                                    any = true;
-                                    anyCmd = true;
-                                    break;
-                                }
+                                mainThread.Dispatch(() => windowManager.Value.Activate());
+                                broughtEditorToFront = true;
                             }
+                            if (cmd.Command != null)
+                               await cmd.Command.Invoke(new CommandArguments(args));
+                            if (cmd.RawCommand != null)
+                                await cmd.RawCommand.Invoke(args);
+                            anyCmd = true;
+                            break;
                         }
-                        if (!anyCmd)
-                            Console.WriteLine("Got command " + line + " but didn't found any command to process this");
                     }
                 }
-
-                Thread.Sleep(50);
+                if (!anyCmd)
+                    LOG.LogWarning("Got command " + line + " but didn't found any command to process this");
             }
+            ProcessAsync().ListenErrors();
         }
 
-        private async Task<string?> SilentInvoke(IRemoteCommand remoteCommand)
-        {
-            if (!remoteConnectorService.IsConnected)
-                return null;
-            
-            try
-            {
-                var response = (await remoteConnectorService.ExecuteCommand(remoteCommand)).Trim();
-
-                if (response.StartsWith("### USAGE:"))
-                    return null;
-                
-                return response;
-            }
-            catch (Exception)
-            {
-                return null;
-            }
-        }
-        
         private async Task<string?> Invoke(IRemoteCommand remoteCommand)
         {
             if (!remoteConnectorService.IsConnected)
@@ -129,7 +109,7 @@ namespace WoWDatabaseEditorCore.Services.ServerIntegration
 
                 return response;
             }
-            catch (CouldNotConnectToRemoteServer _)
+            catch (CouldNotConnectToRemoteServer)
             {
                 statusBar.PublishNotification(new PlainNotification(NotificationType.Error,
                     "Couldn't connect to the remote server. Check remote server connection settings or check if the server is alive." ));
@@ -137,7 +117,7 @@ namespace WoWDatabaseEditorCore.Services.ServerIntegration
             }
             catch (Exception e)
             {
-                Console.WriteLine(e);
+                LOG.LogError(e);
                 return null;
             }
         }
@@ -202,7 +182,12 @@ namespace WoWDatabaseEditorCore.Services.ServerIntegration
         private struct ReverseRemoteCommandHolder
         {
             public string Name { get; init; }
-            public IReverseRemoteCommand Command
+            public IReverseRemoteCommand? Command
+            {
+                get;
+                init;
+            }
+            public IRawReverseRemoteCommand? RawCommand
             {
                 get;
                 init;

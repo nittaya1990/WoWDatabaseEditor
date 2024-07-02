@@ -1,5 +1,6 @@
 using LinqToDB.Mapping;
 using WDE.Common.Database;
+using WDE.Common.Utils;
 
 namespace WDE.TrinityMySqlDatabase.Models
 {
@@ -14,8 +15,12 @@ namespace WDE.TrinityMySqlDatabase.Models
         [Column(Name = "id")]
         public uint Entry { get; set; }
         [Column(Name = "map")]
-        public uint Map { get; set; }
+        public int Map { get; set; }
 
+        public SmallReadOnlyList<int>? PhaseId => null;
+        
+        public int? PhaseGroup => null;
+        
         [Column(Name = "phaseMask")]
         public uint? PhaseMask { get; set; }
 
@@ -42,6 +47,19 @@ namespace WDE.TrinityMySqlDatabase.Models
 
         [Column(Name = "rotation3")]
         public float Rotation3 { get; set; }
+
+        // in addon
+        //[Column(Name = "parent_rotation0")]
+        public float ParentRotation0 { get; set; }
+
+        //[Column(Name = "parent_rotation1")]
+        public float ParentRotation1 { get; set; }
+
+        //[Column(Name = "parent_rotation2")]
+        public float ParentRotation2 { get; set; }
+
+        //[Column(Name = "parent_rotation3")]
+        public float ParentRotation3 { get; set; }
     }
     
     
@@ -56,9 +74,17 @@ namespace WDE.TrinityMySqlDatabase.Models
         [Column(Name = "id")]
         public uint Entry { get; set; }
         [Column(Name = "map")]
-        public uint Map { get; set; }
+        public int Map { get; set; }
 
         public uint? PhaseMask => null;
+
+        [Column(Name = "PhaseId")]
+        public int? phaseId { get; set; }
+
+        public SmallReadOnlyList<int>? PhaseId => phaseId is null or 0 ? null : new SmallReadOnlyList<int>(phaseId.Value);
+        
+        [Column(Name = "PhaseGroup")]
+        public int? PhaseGroup { get; set; }
 
         [Column(Name = "position_x")]
         public float X { get; set; }
@@ -83,5 +109,18 @@ namespace WDE.TrinityMySqlDatabase.Models
 
         [Column(Name = "rotation3")]
         public float Rotation3 { get; set; }
+
+        // in addon
+        //[Column(Name = "parent_rotation0")]
+        public float ParentRotation0 { get; set; }
+
+        //[Column(Name = "parent_rotation1")]
+        public float ParentRotation1 { get; set; }
+
+        //[Column(Name = "parent_rotation2")]
+        public float ParentRotation2 { get; set; }
+
+        //[Column(Name = "parent_rotation3")]
+        public float ParentRotation3 { get; set; }
     }
 }

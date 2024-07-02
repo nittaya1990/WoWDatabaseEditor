@@ -13,14 +13,17 @@ namespace TheEngine.Input
         
         private volatile bool leftJustDown;
         private volatile bool rightJustDown;
+        
+        private volatile bool leftJustUp;
+        private volatile bool rightJustUp;
 
-        private volatile short mouseWheelDelta;
+        private Vector2 mouseWheelDelta;
 
         private Vector2 lastPosition;
         public Vector2 Position { get; private set; }
         public Vector2 Delta { get; private set; }
 
-        public short WheelDelta => mouseWheelDelta;
+        public Vector2 WheelDelta => mouseWheelDelta;
         public Vector2 NormalizedPosition { get; private set; }
         public Vector2 ScreenPoint
         {
@@ -30,39 +33,82 @@ namespace TheEngine.Input
                 return new Vector2(engine.WindowHost.WindowWidth * zeroOne.X, engine.WindowHost.WindowHeight * zeroOne.Y);
             }
         }
+        public Vector2 LastClickScreenPosition
+        {
+            get
+            {
+                var zeroOne = new Vector2(LastClickNormalizedPosition.X, 1 - LastClickNormalizedPosition.Y);
+                return new Vector2(engine.WindowHost.WindowWidth * zeroOne.X, engine.WindowHost.WindowHeight * zeroOne.Y);
+            }
+        }
+        
+
+        private Vector2 lastClickPosition;
+        private float resetClickTimeCounter = 0;
+        
+        public uint ClickCount { get; private set; }
+
+        public bool HasJustDoubleClicked => ClickCount == 2;
+        public Vector2 LastClickNormalizedPosition { get; private set; }
 
         internal Mouse(Engine engine)
         {
             this.engine = engine;
         }
         
-        internal void Update()
+        internal void Update(float deltaMs)
         {
             Delta = lastPosition - Position;
             lastPosition = Position;
-            mouseWheelDelta = 0;
+            if (resetClickTimeCounter > 0)
+            {
+                if (resetClickTimeCounter <= deltaMs)
+                {
+                    ClickCount = 0;
+                    resetClickTimeCounter = 0;
+                }
+                else
+                    resetClickTimeCounter -= deltaMs;
+            }
         }
 
-        internal void MouseWheel(short delta)
+        internal void MouseWheel(Vector2 delta)
         {
             mouseWheelDelta = delta;
         }
 
         internal void MouseDown(MouseButton button)
         {
-            leftDown = button.HasFlag(MouseButton.Left);
-            if (button.HasFlag(MouseButton.Left))
+            if ((button & MouseButton.Left) != 0)
+            {
+                leftDown = true;
                 leftJustDown = true;
+            }
 
-            rightDown = button.HasFlag(MouseButton.Right);
-            if (button.HasFlag(MouseButton.Right))
+            if ((button & MouseButton.Right) != 0)
+            {
+                rightDown = true;
                 rightJustDown = true;
+            }
+
+            if (leftJustDown || rightJustDown)
+            {
+                if ((lastClickPosition - ScreenPoint).LengthSquared() > 10 * 10)
+                    ClickCount = 0;
+                
+                ClickCount++;
+                resetClickTimeCounter = 500;
+                lastClickPosition = ScreenPoint;
+                LastClickNormalizedPosition = NormalizedPosition;
+            }
         }
 
         internal void MouseUp(MouseButton button)
         {
-            leftDown = button.HasFlag(MouseButton.Left);
-            rightDown = button.HasFlag(MouseButton.Right);
+            leftJustUp = leftDown && (button & MouseButton.Left) == 0;
+            rightJustUp = rightDown && (button & MouseButton.Right) == 0;
+            leftDown = ((button & MouseButton.Left) != 0);
+            rightDown = ((button & MouseButton.Right) != 0);
         }
 
         public bool IsMouseDown(MouseButton button)
@@ -80,6 +126,14 @@ namespace TheEngine.Input
 
             return rightJustDown;
         }
+        
+        public bool HasJustReleased(MouseButton button)
+        {
+            if (((int)button & (int)MouseButton.Left) > 0)
+                return leftJustUp;
+
+            return rightJustUp;
+        }
 
         public void PointerMoved(double x, double y, double width, double height)
         {
@@ -91,6 +145,9 @@ namespace TheEngine.Input
         {
             leftJustDown = false;
             rightJustDown = false;
+            leftJustUp = false;
+            rightJustUp = false;
+            mouseWheelDelta = Vector2.Zero;
         }
     }
 

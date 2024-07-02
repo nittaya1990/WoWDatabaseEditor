@@ -9,26 +9,26 @@ namespace WDE.DatabaseEditors.Avalonia.Helpers
 {
     public class GridColumnsBinder
     {
-        public static readonly AttachedProperty<ObservableCollection<DatabaseColumnHeaderViewModel>> ColumnsProperty = AvaloniaProperty.RegisterAttached<IAvaloniaObject, ObservableCollection<DatabaseColumnHeaderViewModel>>("Columns", typeof(GridColumnsBinder));
+        public static readonly AttachedProperty<ObservableCollection<DatabaseColumnHeaderViewModel>> ColumnsProperty = AvaloniaProperty.RegisterAttached<AvaloniaObject, ObservableCollection<DatabaseColumnHeaderViewModel>>("Columns", typeof(GridColumnsBinder));
 
-        public static ObservableCollection<DatabaseColumnHeaderViewModel> GetColumns(IAvaloniaObject obj)
+        public static ObservableCollection<DatabaseColumnHeaderViewModel> GetColumns(AvaloniaObject obj)
         {
-            return obj.GetValue(ColumnsProperty);
+            return (ObservableCollection<DatabaseColumnHeaderViewModel>?)obj.GetValue(ColumnsProperty) ?? new ObservableCollection<DatabaseColumnHeaderViewModel>();
         }
 
-        public static void SetColumns(IAvaloniaObject obj, ObservableCollection<DatabaseColumnHeaderViewModel> value)
+        public static void SetColumns(AvaloniaObject obj, ObservableCollection<DatabaseColumnHeaderViewModel> value)
         {
             obj.SetValue(ColumnsProperty, value);
         }
 
-        public static readonly AttachedProperty<ObservableCollection<DatabaseColumnHeaderViewModel>> ColumnsWithHeaderProperty = AvaloniaProperty.RegisterAttached<IAvaloniaObject, ObservableCollection<DatabaseColumnHeaderViewModel>>("ColumnsWithHeader", typeof(GridColumnsBinder));
+        public static readonly AttachedProperty<ObservableCollection<DatabaseColumnHeaderViewModel>> ColumnsWithHeaderProperty = AvaloniaProperty.RegisterAttached<AvaloniaObject, ObservableCollection<DatabaseColumnHeaderViewModel>>("ColumnsWithHeader", typeof(GridColumnsBinder));
 
-        public static ObservableCollection<DatabaseColumnHeaderViewModel> GetColumnsWithHeader(IAvaloniaObject obj)
+        public static ObservableCollection<DatabaseColumnHeaderViewModel> GetColumnsWithHeader(AvaloniaObject obj)
         {
-            return obj.GetValue(ColumnsWithHeaderProperty);
+            return (ObservableCollection<DatabaseColumnHeaderViewModel>?)obj.GetValue(ColumnsWithHeaderProperty) ?? new ObservableCollection<DatabaseColumnHeaderViewModel>();
         }
 
-        public static void SetColumnsWithHeader(IAvaloniaObject obj, ObservableCollection<DatabaseColumnHeaderViewModel> value)
+        public static void SetColumnsWithHeader(AvaloniaObject obj, ObservableCollection<DatabaseColumnHeaderViewModel> value)
         {
             obj.SetValue(ColumnsWithHeaderProperty, value);
         }
@@ -49,7 +49,7 @@ namespace WDE.DatabaseEditors.Avalonia.Helpers
                 foreach (var column in newList)
                 {
                     var definition = new ColumnDefinition();
-                    definition.SharedSizeGroup = column.DatabaseName;
+                    definition.SharedSizeGroup = column.ColumnIdForUi;
                     grid.ColumnDefinitions.Add(definition);
 
                     definition = new ColumnDefinition(5, GridUnitType.Pixel);
@@ -74,9 +74,14 @@ namespace WDE.DatabaseEditors.Avalonia.Helpers
                     int index = 0;
                     foreach (var column in newList)
                     {
-                        var definition = new ColumnDefinition(column.PreferredWidth ?? 120, GridUnitType.Pixel);
-                        definition.SharedSizeGroup = column.DatabaseName;
+                        var definition = new ColumnDefinition(column.Width, GridUnitType.Pixel);
+                        definition.SharedSizeGroup = column.ColumnIdForUi;
                         definition.MinWidth = 30;
+                        column.AutoDispose(definition.GetObservable(ColumnDefinition.WidthProperty).SubscribeAction(
+                        width =>
+                        {
+                            column.Width = width.Value;
+                        }));
                         grid.ColumnDefinitions.Add(definition);
 
                         definition = new ColumnDefinition(5, GridUnitType.Pixel);

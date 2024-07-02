@@ -8,20 +8,21 @@ using WDE.PacketViewer.Processing.Processors;
 namespace WDE.PacketViewer.Processing.ProcessorProviders
 {
     [AutoRegister]
-    public class SpellNameDumperProvider : IPacketDumperProvider
+    public class SpellNameDumperProvider : ITextPacketDumperProvider
     {
-        private readonly Lazy<ISpellStore> spellStore;
+        private readonly Func<SpellNameProcessor> processor;
 
-        public SpellNameDumperProvider(Lazy<ISpellStore> spellStore)
+        public SpellNameDumperProvider(Func<SpellNameProcessor> processor)
         {
-            this.spellStore = spellStore;
+            this.processor = processor;
         }
         
-        public string Name => "Spell name dump";
+        public string Name => "Spell and sound names";
         public string Description => "Generate all unique spell names as c++ like enum";
         public string Extension => "cpp";
+        public bool CanProcessMultipleFiles => true;
         public ImageUri? Image { get; } = new ImageUri("Icons/document_spell_big.png");
-        public Task<IPacketTextDumper> CreateDumper() =>
-            Task.FromResult<IPacketTextDumper>(new NameAsEnumDumper(new SpellNameProcessor(spellStore.Value)));
+        public Task<IPacketTextDumper> CreateDumper(IParsingSettings settings) =>
+            Task.FromResult<IPacketTextDumper>(new NameAsEnumDumper(processor()));
     }
 }

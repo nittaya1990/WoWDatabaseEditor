@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -8,9 +9,9 @@ namespace TheEngine.ECS
     {
         private bool disposed;
         //private readonly byte[][] componentData;
-        private readonly unsafe byte*[] componentData;
-        private readonly object?[][] managedComponentData;
-        public readonly Archetype Archetype;
+        private unsafe byte*[] componentData;
+        private object?[][] managedComponentData;
+        public Archetype Archetype;
         private int capacity;
         private int used;
         private readonly int componentsCount;
@@ -27,6 +28,24 @@ namespace TheEngine.ECS
             //componentData = new byte[archetype.Components.Count][];
             componentData = new byte*[componentsCount];
             managedComponentData = new object?[managedComponentsCount][];
+        }
+
+        public unsafe void Dispose()
+        {
+            disposed = true;
+            Archetype = null!;
+            for (int i = 0; i < componentsCount; ++i)
+            {
+                Marshal.FreeHGlobal(new IntPtr(componentData[i]));
+                componentData[i] = null!;
+            }
+            for (int i = 0; i < managedComponentsCount; ++i)
+            {
+                managedComponentData[i] = null!;
+            }
+            componentData = null!;
+            managedComponentData = null!;
+            sparseReverseEntityMapping = null!;
         }
 
         ~ChunkDataManager()
@@ -50,28 +69,44 @@ namespace TheEngine.ECS
             get => entityMapping[index];
         }
 
-        public ManagedComponentDataAccess<T> ManagedDataAccess<T>() where T : IManagedComponentData
+        public ManagedComponentDataAccess<T>? OptionalManagedDataAccess<T>() where T : IManagedComponentData
         {
             int i = 0;
-            foreach (var c in Archetype.ManagedComponents)
+            // for to prevent allocations
+            for (var index = 0; index < Archetype.ManagedComponents.Count; index++)
             {
+                var c = Archetype.ManagedComponents[index];
                 if (c.DataType == typeof(T))
                     return new ManagedComponentDataAccess<T>(managedComponentData[i], sparseReverseEntityMapping);
                 i++;
             }
-            throw new Exception("There is no component data + " + typeof(T) + " in this archetype");
+
+            return null;
         }
         
-        public unsafe ComponentDataAccess<T> DataAccess<T>() where T : unmanaged, IComponentData
+        public unsafe ComponentDataAccess<T>? OptionalDataAccess<T>() where T : unmanaged, IComponentData
         {
             int i = 0;
-            foreach (var c in Archetype.Components)
+            var componentsCount = Archetype.Components.Count;
+            for (int j = 0; j < componentsCount; ++j)
             {
+                var c = Archetype.Components[j];
                 if (c.DataType == typeof(T))
                     return new ComponentDataAccess<T>(componentData[i], sparseReverseEntityMapping);
                 i++;
             }
-            throw new Exception("There is no component data + " + typeof(T) + " in this archetype");
+
+            return null;
+        }
+        
+        public ManagedComponentDataAccess<T> ManagedDataAccess<T>() where T : IManagedComponentData
+        {
+            return OptionalManagedDataAccess<T>() ?? throw new Exception("There is no component data + " + typeof(T) + " in this archetype");
+        }
+        
+        public ComponentDataAccess<T> DataAccess<T>() where T : unmanaged, IComponentData
+        {
+            return OptionalDataAccess<T>() ?? throw new Exception("There is no component data + " + typeof(T) + " in this archetype");
         }
 
         private static unsafe void AllocOrRealloc(ref byte* addr, ulong size)
@@ -106,7 +141,45 @@ namespace TheEngine.ECS
             if (sparseReverseEntityMapping.Length <= entity.Id)
                 Array.Resize(ref sparseReverseEntityMapping, Math.Max((int)entity.Id + 1, sparseReverseEntityMapping.Length * 2 + 1));
         }
+        
+        /**
+         * The entity must be present in the Data Manager!
+         */
+        internal unsafe void UnsafeCopy(Entity entity, ChunkDataManager oldData, IComponentTypeData component)
+        {
+            var newIndex = Archetype.Components.IndexOf(component);
+            var oldIndex = oldData.Archetype.Components.IndexOf(component);
+            
+            if (newIndex == -1 || oldIndex == -1)
+                throw new Exception("trying to unsafe copy component which is not present either in the old or new ComponentDataManager");
+            
+            var newArray = componentData[newIndex];
+            var oldArray = oldData.componentData[oldIndex];
 
+            var newEntityIndex = sparseReverseEntityMapping[entity.Id] - 1;
+            var oldEntityIndex = oldData.sparseReverseEntityMapping[entity.Id] - 1;
+
+            for (int j = 0; j < component.SizeBytes; ++j)
+                newArray[newEntityIndex * component.SizeBytes + j] = oldArray[oldEntityIndex * component.SizeBytes + j];
+        }
+
+        internal void UnsafeCopy(Entity entity, ChunkDataManager oldData, IManagedComponentTypeData component)
+        {
+            var newIndex = Archetype.ManagedComponents.IndexOf(component);
+            var oldIndex = oldData.Archetype.ManagedComponents.IndexOf(component);
+            
+            if (newIndex == -1 || oldIndex == -1)
+                throw new Exception("trying to unsafe copy component which is not present either in the old or new ComponentDataManager");
+            
+            var newArray = managedComponentData[newIndex];
+            var oldArray = oldData.managedComponentData[oldIndex];
+
+            var newEntityIndex = sparseReverseEntityMapping[entity.Id] - 1;
+            var oldEntityIndex = oldData.sparseReverseEntityMapping[entity.Id] - 1;
+
+            newArray[newEntityIndex] = oldArray[oldEntityIndex];
+        }
+        
         public unsafe void AddEntity(Entity entity)
         {
             ResizeIfNeeded(entity);
@@ -138,6 +211,7 @@ namespace TheEngine.ECS
 
             entityMapping[index] = swapWithEntity;
             sparseReverseEntityMapping[swapWithEntity.Id] = index + 1;
+            sparseReverseEntityMapping[entity.Id] = 0;
 
             int i = 0;
             foreach (var c in Archetype.Components)
@@ -159,15 +233,35 @@ namespace TheEngine.ECS
             used--;
         }
 
-        public unsafe void Dispose()
+        // for debugging only
+        internal object? DebugGetManagedComponent(Entity entity, IManagedComponentTypeData type)
         {
-            disposed = true;
-            for (int i = 0; i < componentsCount; ++i)
+            for (int j = 0; j < managedComponentsCount; ++j)
             {
-                Marshal.FreeHGlobal(new IntPtr(componentData[i]));
-                componentData[i] = null!;
+                var c = Archetype.ManagedComponents[j];
+                if (c.DataType == type.DataType)
+                {
+                    var index = sparseReverseEntityMapping[entity.Id];
+                    return managedComponentData[j][index];
+                }
             }
-            sparseReverseEntityMapping = null!;
+
+            return null;
+        }
+        
+        internal unsafe object? UnsafeDebugGetComponent(Entity entity, IComponentTypeData type)
+        {
+            for (int j = 0; j < componentsCount; ++j)
+            {
+                var c = Archetype.Components[j];
+                if (c.DataType == type.DataType)
+                {
+                    var index = sparseReverseEntityMapping[entity.Id];
+                    return Marshal.PtrToStructure(new IntPtr(componentData[j] + index * c.SizeBytes), c.DataType);
+                }
+            }
+
+            return null;
         }
     }
 }

@@ -9,6 +9,7 @@ options {
 
 exprBool
     : '!' exprBool                          # BNegate
+    | 'target' '.' 'emptyPosition'          # BTargetPosEmpty
     | exprInt '<' exprInt                   # BLessThan
     | exprInt '<=' exprInt                  # BLessEquals
     | exprInt '>' exprInt                   # BGreaterThan
@@ -27,6 +28,7 @@ exprBool
 exprInt
     : '-' exprInt                           # ENegate
     | 'target' '.' 'type'                   # ETargetType
+    | 'event' '.' 'flags'                   # EEventFlags
     | 'target' '.' 'param' '(' INT ')'      # ETargetParam
     | 'source' '.' 'param' '(' INT ')'      # ESourceParam
     | 'event' '.' 'param' '(' INT ')'       # EEventParam

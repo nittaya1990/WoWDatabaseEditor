@@ -1,16 +1,21 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Threading.Tasks;
+using AsyncAwaitBestPractices.MVVM;
 using DynamicData;
 using Prism.Commands;
 using Prism.Events;
+using PropertyChanged.SourceGenerator;
 using WDE.Common;
 using WDE.Common.Database;
+using WDE.Common.Exceptions;
 using WDE.Common.History;
+using WDE.Common.Managers;
 using WDE.Common.Parameters;
 using WDE.Common.Providers;
 using WDE.Common.Services;
@@ -21,45 +26,52 @@ using WDE.Common.Tasks;
 using WDE.Common.Utils;
 using WDE.DatabaseEditors.CustomCommands;
 using WDE.DatabaseEditors.Data.Interfaces;
+using WDE.DatabaseEditors.Data.Structs;
 using WDE.DatabaseEditors.Expressions;
 using WDE.DatabaseEditors.Extensions;
 using WDE.DatabaseEditors.History;
 using WDE.DatabaseEditors.Loaders;
 using WDE.DatabaseEditors.Models;
 using WDE.DatabaseEditors.QueryGenerators;
+using WDE.DatabaseEditors.Services;
 using WDE.DatabaseEditors.Solution;
 using WDE.MVVM;
 using WDE.MVVM.Observable;
+using WDE.SqlQueryGenerator;
 
 namespace WDE.DatabaseEditors.ViewModels.Template
 {
-    public class TemplateDbTableEditorViewModel : ViewModelBase
+    public partial class TemplateDbTableEditorViewModel : ViewModelBase
     {
         private const string TipYouCanRevertId = "TableEditor.YouCanRevert";
     
-        private readonly IItemFromListProvider itemFromListProvider;
-        private readonly IMessageBoxService messageBoxService;
-        private readonly IParameterFactory parameterFactory;
-        private readonly IMySqlExecutor mySqlExecutor;
-        private readonly IQueryGenerator queryGenerator;
         private readonly ITeachingTipService teachingTipService;
         private readonly ICreatureStatCalculatorService creatureStatCalculatorService;
-        private readonly ISessionService sessionService;
+        private readonly IConditionEditService conditionEditService;
+        private readonly ITableEditorPickerService tableEditorPickerService;
+        private readonly IMetaColumnsSupportService metaColumnsSupportService;
 
         private readonly IDatabaseTableDataProvider tableDataProvider;
         
         public ObservableCollection<string> Header { get; } = new();
+        [Notify] private DatabaseRowsGroupViewModel? selectedGroup;
         public ReadOnlyObservableCollection<DatabaseRowsGroupViewModel> FilteredRows { get; }
         public IObservable<Func<DatabaseRowViewModel, bool>> CurrentFilter { get; }
         public SourceList<DatabaseRowViewModel> Rows { get; } = new();
+        private HashSet<(DatabaseKey key, ColumnFullName columnName)> forceUpdateCells = new HashSet<(DatabaseKey, ColumnFullName)>();
+
+        [Notify] private bool allowMultipleKeys = true;
         
         public AsyncAutoCommand<DatabaseCellViewModel?> RemoveTemplateCommand { get; }
         public AsyncAutoCommand<DatabaseCellViewModel?> RevertCommand { get; }
+        public AsyncAutoCommand<DatabaseCellViewModel?> EditConditionsCommand { get; }
         public DelegateCommand<DatabaseCellViewModel?> SetNullCommand { get; }
         public AsyncAutoCommand<DatabaseCellViewModel> OpenParameterWindow { get; }
         private readonly Dictionary<string, ReactiveProperty<bool>> groupVisibilityByName = new();
+        public override bool SupportsMultiSelect => false;
+        public override IReadOnlyList<DatabaseEntity>? MultiSelectionEntities => null;
 
-        public AsyncAutoCommand AddNewCommand { get; }
+        public IAsyncCommand AddNewCommand { get; }
 
         private bool canOpenRevertTip;
         public bool YouCanRevertTipOpened { get; set; }
@@ -69,26 +81,27 @@ namespace WDE.DatabaseEditors.ViewModels.Template
             IHistoryManager history, ITaskRunner taskRunner, IMessageBoxService messageBoxService,
             IEventAggregator eventAggregator, ISolutionManager solutionManager, 
             IParameterFactory parameterFactory, ISolutionTasksService solutionTasksService,
-            ISolutionItemNameRegistry solutionItemName, IMySqlExecutor mySqlExecutor,
+            ISolutionItemNameRegistry solutionItemName, IDatabaseQueryExecutor mySqlExecutor,
             IQueryGenerator queryGenerator, ITeachingTipService teachingTipService,
             ICreatureStatCalculatorService creatureStatCalculatorService,
             ITableDefinitionProvider tableDefinitionProvider,
             ISolutionItemIconRegistry iconRegistry, ISessionService sessionService,
-            IDatabaseTableCommandService commandService) : base(history, solutionItem, solutionItemName, 
+            IDatabaseTableCommandService commandService,
+            IParameterPickerService parameterPickerService,
+            IConditionEditService conditionEditService,
+            IStatusBar statusBar, ITableEditorPickerService tableEditorPickerService,
+            IMetaColumnsSupportService metaColumnsSupportService) : base(history, solutionItem, solutionItemName, 
             solutionManager, solutionTasksService, eventAggregator, 
             queryGenerator, tableDataProvider, messageBoxService, taskRunner, parameterFactory, 
             tableDefinitionProvider, itemFromListProvider, iconRegistry, sessionService,
-            commandService)
+            commandService, parameterPickerService, statusBar, mySqlExecutor)
         {
-            this.itemFromListProvider = itemFromListProvider;
             this.tableDataProvider = tableDataProvider;
-            this.messageBoxService = messageBoxService;
-            this.parameterFactory = parameterFactory;
-            this.mySqlExecutor = mySqlExecutor;
-            this.queryGenerator = queryGenerator;
             this.teachingTipService = teachingTipService;
             this.creatureStatCalculatorService = creatureStatCalculatorService;
-            this.sessionService = sessionService;
+            this.conditionEditService = conditionEditService;
+            this.tableEditorPickerService = tableEditorPickerService;
+            this.metaColumnsSupportService = metaColumnsSupportService;
 
             OpenParameterWindow = new AsyncAutoCommand<DatabaseCellViewModel>(EditParameter);
 
@@ -111,28 +124,71 @@ namespace WDE.DatabaseEditors.ViewModels.Template
 
             RemoveTemplateCommand = new AsyncAutoCommand<DatabaseCellViewModel?>(RemoveTemplate, vm => vm != null);
             RevertCommand = new AsyncAutoCommand<DatabaseCellViewModel?>(Revert, cell => cell is DatabaseCellViewModel vm && vm.CanBeReverted && vm.IsModified);
+            EditConditionsCommand = new AsyncAutoCommand<DatabaseCellViewModel?>(EditConditions);
             SetNullCommand = new DelegateCommand<DatabaseCellViewModel?>(SetToNull, vm => vm != null && vm.CanBeSetToNull);
-            AddNewCommand = new AsyncAutoCommand(AddNewEntity);
+            AddNewCommand = new AsyncAutoCommand(AddNewEntity).WrapMessageBox<Exception>(messageBoxService);
 
             canOpenRevertTip = !teachingTipService.IsTipShown(TipYouCanRevertId);
+
+            if (tableDefinition.PrimaryKey == null)
+                throw new UserException($"Table definition " + tableDefinition.Id + " doesn't have primary key defined");
+
+            if (tableDefinition.PrimaryKey.Count != 1)
+                throw new UserException($"Table definition " + tableDefinition.Id + " is a template type editor, therefore its primary key should be a single column.");
+
+            Debug.Assert(tableDefinition.PrimaryKey.Count == 1);
             
             ScheduleLoading();
+        }
+
+        private async Task EditConditions(DatabaseCellViewModel? view)
+        {
+            if (view == null)
+                return;
+
+            if (tableDefinition.Condition == null)
+                return;
+
+            var conditionList = view.ParentEntity.Conditions;
+
+            var key = new IDatabaseProvider.ConditionKey(tableDefinition.Condition.SourceType);
+            if (tableDefinition.Condition.SourceGroupColumn is {} sourceGroup)
+                key = key.WithGroup(sourceGroup.Calculate((int)view.ParentEntity.GetTypedValueOrThrow<long>(sourceGroup.Name)));
+            if (tableDefinition.Condition.SourceEntryColumn is { } sourceEntry)
+                key = key.WithEntry((int)view.ParentEntity.GetTypedValueOrThrow<long>(sourceEntry));
+            if (tableDefinition.Condition.SourceIdColumn is { } sourceId)
+                key = key.WithId((int)view.ParentEntity.GetTypedValueOrThrow<long>(sourceId));
+
+            var newConditions = await conditionEditService.EditConditions(key, conditionList);
+            if (newConditions == null)
+                return;
+
+            view.ParentEntity.Conditions = newConditions.ToList();
+            if (tableDefinition.Condition.SetColumn != null)
+            {
+                var hasColumn = view.ParentEntity.GetCell(tableDefinition.Condition.SetColumn.Value);
+                if (hasColumn is DatabaseField<long> lf)
+                    lf.Current.Value = view.ParentEntity.Conditions.Count > 0 ? 1 : 0;
+            }
         }
 
         protected override void UpdateSolutionItem()
         {
             solutionItem.Entries = Entities.Select(e =>
-                new SolutionItemDatabaseEntity(e.Key, e.ExistInDatabase, GetOriginalFields(e))).ToList();
+                new SolutionItemDatabaseEntity(e.Key, e.ExistInDatabase, e.ConditionsModified, GetOriginalFields(e))).ToList();
         }
 
         private async Task AddNewEntity()
         {
+            if (!allowMultipleKeys)
+                return;
+            
             var parameter = parameterFactory.Factory(tableDefinition.Picker);
-            var selected = await itemFromListProvider.GetItemFromList(parameter.Items, false);
-            if (!selected.HasValue)
+            var (selected, ok) = await parameterPickerService.PickParameter(parameter, 0);
+            if (!ok)
                 return;
 
-            var data = await tableDataProvider.Load(tableDefinition.Id, (uint) selected);
+            var data = await tableDataProvider.Load(tableDefinition.Id, null, null,null, new []{new DatabaseKey(selected)});
             if (data == null) 
                 return;
 
@@ -147,17 +203,18 @@ namespace WDE.DatabaseEditors.ViewModels.Template
                         .Build());
                     continue;
                 }
-                if (!entity.ExistInDatabase)
-                {
-                    if (!await messageBoxService.ShowDialog(new MessageBoxFactory<bool>()
-                        .SetTitle("Entity doesn't exist in database")
-                        .SetMainInstruction($"Entity {entity.Key} doesn't exist in the database")
-                        .SetContent(
-                            "WoW Database Editor will be generating DELETE/INSERT query instead of UPDATE. Do you want to continue?")
-                        .WithYesButton(true)
-                        .WithNoButton(false).Build()))
-                        continue;
-                }
+                // actually, why not, let's allow creating new entities via this editor
+                // if (!entity.ExistInDatabase)
+                // {
+                //     if (!await messageBoxService.ShowDialog(new MessageBoxFactory<bool>()
+                //         .SetTitle("Entity doesn't exist in database")
+                //         .SetMainInstruction($"Entity {entity.Key} doesn't exist in the database")
+                //         .SetContent(
+                //             "WoW Database Editor will be generating DELETE/INSERT query instead of UPDATE. Do you want to continue?")
+                //         .WithYesButton(true)
+                //         .WithNoButton(false).Build()))
+                //         continue;
+                // }
                 await AddEntity(entity);
             }
         }
@@ -174,26 +231,6 @@ namespace WDE.DatabaseEditors.ViewModels.Template
                 return;
             
             view.ParameterValue!.Revert();
-            
-            if (!view.ParentEntity.ExistInDatabase)
-                return;
-            
-            if (!mySqlExecutor.IsConnected)
-                return;
-
-            if (!await messageBoxService.ShowDialog(new MessageBoxFactory<bool>()
-                .SetTitle("Reverting")
-                .SetMainInstruction("Do you want to revert field in the database?")
-                .SetContent(
-                    "Reverted field will become unmodified field and unmodified fields are not generated in query. Therefore if you want to revert the field in the database, it can be done now.\n\nDo you want to revert the field in the database now (this will execute query)?")
-                .SetIcon(MessageBoxIcon.Information)
-                .WithYesButton(true)
-                .WithNoButton(false)
-                .Build()))
-                return;
-
-            var query = queryGenerator.GenerateUpdateFieldQuery(tableDefinition, view.ParentEntity, view.TableField);
-            await mySqlExecutor.ExecuteSql(query);
         }
 
         private async Task RemoveTemplate(DatabaseCellViewModel? view)
@@ -213,20 +250,20 @@ namespace WDE.DatabaseEditors.ViewModels.Template
         {
             if (string.IsNullOrEmpty(text)) 
                 return _ => true;
-            var lower = text.ToLower();
+            var lower = text.ToLower().Trim();
             if (lower.Contains("||"))
             {
                 var parts = lower.Split("||").Select(a => a.Trim()).ToList();
                 return item =>
                 {
                     foreach (var p in parts)
-                        if (item.Name.ToLower().Contains(p))
+                        if (item.Name.Contains(p, StringComparison.OrdinalIgnoreCase))
                             return true;
                     return false;
                 };
             }
             else
-                return item => item.Name.ToLower().Contains(lower);
+                return item => item.Name.Contains(lower, StringComparison.OrdinalIgnoreCase);
         }
         
         private bool ContainsEntity(DatabaseEntity entity)
@@ -237,19 +274,9 @@ namespace WDE.DatabaseEditors.ViewModels.Template
             return false;
         }
 
-        private Task EditParameter(DatabaseCellViewModel cell) => EditParameter(cell.ParameterValue!);
+        private Task EditParameter(DatabaseCellViewModel cell) => EditParameter(cell.ParameterValue!, cell.ParentEntity);
 
-        protected override List<EntityOrigianlField>? GetOriginalFields(DatabaseEntity entity)
-        {
-            var modified = entity.Fields.Where(f => f.IsModified).ToList();
-            if (modified.Count == 0)
-                return null;
-            
-            return modified.Select(f => new EntityOrigianlField()
-                {ColumnName = f.FieldName, OriginalValue = f.OriginalValue}).ToList();
-        }
-
-        public override DatabaseEntity AddRow(uint key)
+        public override DatabaseEntity AddRow(DatabaseKey key, int? index = null)
         {
             throw new NotImplementedException();
         }
@@ -257,10 +284,10 @@ namespace WDE.DatabaseEditors.ViewModels.Template
         public async Task<bool> RemoveEntity(DatabaseEntity entity)
         {
             if (!await messageBoxService.ShowDialog(new MessageBoxFactory<bool>()
-                .SetTitle("Delete entity")
-                .SetMainInstruction($"Do you want to delete entity with key {entity.Key} from the editor?")
+                .SetTitle("Unload entity")
+                .SetMainInstruction($"Do you want to unload entity with key {entity.Key} from the editor?")
                 .SetContent(
-                    "It will be removed only from the project editor, it will not be removed from the database.")
+                    "It will be unloaded only from the project editor, it will not be removed from the database.")
                 .WithYesButton(true)
                 .WithNoButton(false).Build()))
                 return false;
@@ -274,7 +301,7 @@ namespace WDE.DatabaseEditors.ViewModels.Template
             if (indexOfEntity == -1)
                 return false;
             
-            Entities.RemoveAt(indexOfEntity);
+            entities[0].RemoveAt(indexOfEntity);
             Header.RemoveAt(indexOfEntity);
             foreach (var row in Rows.Items)
                 row.Cells.RemoveAt(indexOfEntity);
@@ -289,11 +316,11 @@ namespace WDE.DatabaseEditors.ViewModels.Template
             return Task.FromResult(ForceInsertEntity(entity, Entities.Count));
         }
 
-        public override bool ForceInsertEntity(DatabaseEntity entity, int index)
+        public override bool ForceInsertEntity(DatabaseEntity entity, int index, bool undoing = false)
         {
             Dictionary<string, IObservable<bool>?> groupVisibility = new();
 
-            var pseudoItem = new DatabaseTableSolutionItem(entity.Key, entity.ExistInDatabase, tableDefinition.Id);
+            var pseudoItem = new DatabaseTableSolutionItem(entity.Key, entity.ExistInDatabase, entity.ConditionsModified, tableDefinition.Id, tableDefinition.IgnoreEquality);
             var savedItem = sessionService.Find(pseudoItem);
             if (savedItem is DatabaseTableSolutionItem savedTableItem)
                 savedTableItem.UpdateEntitiesWithOriginalValues(new List<DatabaseEntity>(){entity});
@@ -303,32 +330,49 @@ namespace WDE.DatabaseEditors.ViewModels.Template
                 var column = row.ColumnData;
                 DatabaseCellViewModel cellViewModel;
                 
-                if (column.IsMetaColumn)
+                if (column.IsConditionColumn)
                 {
-                    var evaluator = new DatabaseExpressionEvaluator(creatureStatCalculatorService, parameterFactory, tableDefinition, column.Expression!);
-                    var parameterValue = new ParameterValue<string>(new ValueHolder<string>(evaluator.Evaluate(entity)!.ToString(), false),
-                        new ValueHolder<string>("", false), StringParameter.Instance);
-                    entity.OnAction += _ => parameterValue.Value = evaluator.Evaluate(entity)!.ToString();
-                    cellViewModel = AutoDispose(new DatabaseCellViewModel(row, entity, parameterValue));
+                    var label = Observable.Select(entity.ToObservable(e => e.Conditions), c => "Conditions (" + c.CountActualConditions() + ")");
+                    cellViewModel = AutoDispose(new DatabaseCellViewModel(row, entity, EditConditionsCommand, label));
+                }
+                else if (column.IsMetaColumn)
+                {
+                    if (column.Meta!.StartsWith("expression:"))
+                    {
+                        var evaluator = new DatabaseExpressionEvaluator(creatureStatCalculatorService, parameterFactory, tableDefinition, column.Meta!.Substring(11));
+                        var parameterValue = new ParameterValue<string, DatabaseEntity>(entity, new ValueHolder<string>(evaluator.Evaluate(entity)!.ToString(), false),
+                            new ValueHolder<string>("", false), StringParameter.Instance);
+                        entity.OnAction += _ => parameterValue.Value = evaluator.Evaluate(entity)!.ToString();
+                        cellViewModel = AutoDispose(new DatabaseCellViewModel(row, entity, parameterValue));   
+                    }
+                    else if (column.Meta!.StartsWith("customfield:"))
+                    {
+                        throw new NotImplementedException();
+                    }
+                    else
+                    {
+                        var (command, title) = metaColumnsSupportService.GenerateCommand(this, tableDefinition.DataDatabaseType, column.Meta!, entity, entity.GenerateKey(TableDefinition));
+                        cellViewModel = AutoDispose(new DatabaseCellViewModel(row, entity, command, column.Name));
+                    }
                 }
                 else
                 {
-                    var cell = entity.GetCell(column.DbColumnName);
+                    var cell = entity.GetCell(column.DbColumnFullName);
                     if (cell == null)
                         throw new Exception("this should never happen");
                             
                     IParameterValue parameterValue = null!;
                     if (cell is DatabaseField<long> longParam)
                     {
-                        parameterValue = new ParameterValue<long>(longParam.Current, longParam.Original, parameterFactory.Factory(column.ValueType));
+                        parameterValue = new ParameterValue<long, DatabaseEntity>(entity, longParam.Current, longParam.Original, parameterFactory.Factory(column.ValueType));
                     }
                     else if (cell is DatabaseField<string> stringParam)
                     {
-                        parameterValue = new ParameterValue<string>(stringParam.Current, stringParam.Original, parameterFactory.FactoryString(column.ValueType));
+                        parameterValue = new ParameterValue<string, DatabaseEntity>(entity, stringParam.Current, stringParam.Original, parameterFactory.FactoryString(column.ValueType));
                     }
                     else if (cell is DatabaseField<float> floatParameter)
                     {
-                        parameterValue = new ParameterValue<float>(floatParameter.Current, floatParameter.Original, FloatParameter.Instance);
+                        parameterValue = new ParameterValue<float, DatabaseEntity>(entity, floatParameter.Current, floatParameter.Original, FloatParameter.Instance);
                     }
 
                     IObservable<bool>? cellVisible = null!;
@@ -348,33 +392,49 @@ namespace WDE.DatabaseEditors.ViewModels.Template
                     }
 
                     cellViewModel = AutoDispose(new DatabaseCellViewModel(row, entity, cell, parameterValue, cellVisible));
+                    if (cellViewModel.ParameterValue != null && cellViewModel.TableField != null && entity.ExistInDatabase)
+                        AutoDispose(cellViewModel.ParameterValue.ToObservable("Value").Skip(1).SubscribeAction(_ =>
+                        {
+                            if (!cellViewModel.IsModified)
+                            {
+                                forceUpdateCells.Add((cellViewModel.ParentEntity.Key, cellViewModel.TableField!.FieldName));
+                                History.MarkNoSave();
+                            }
+                        }));
                 }
 
                 
                 row.Cells.Insert(index, cellViewModel);
             }
 
-            Entities.Insert(index, entity);
-            var name = parameterFactory.Factory(tableDefinition.Picker).ToString(entity.Key);
+            entities[0].Insert(index, entity);
+            var name = parameterFactory.Factory(tableDefinition.Picker).ToString(entity.Key[0]);
             Header.Insert(index, name);
 
-            var typeCell = entity.GetCell("type");
-            if (typeCell == null)
-                return true;
-            typeCell.PropertyChanged += (_, _) => ReEvalVisibility();
+            foreach (var column in tableDefinition.Groups
+                         .Select(g => g.ShowIf?.ColumnName)
+                         .Where(column => column != null)
+                         .Distinct())
+            {
+                var typeCell = entity.GetCell(column!.Value);
+                if (typeCell != null)
+                    typeCell.PropertyChanged += (_, _) => ReEvalVisibility();
+            }
 
             ReEvalVisibility();
             
             return true;
         }
 
-        protected override ICollection<uint> GenerateKeys() => Entities.Select(e => e.Key).ToList();
+        protected override IReadOnlyList<DatabaseKey> GenerateKeys() => Entities.Select(e => e.Key).ToList();
+        protected override IReadOnlyList<DatabaseKey>? GenerateDeletedKeys() => null;
 
         protected override async Task InternalLoadData(DatabaseTableData data)
         {
             Rows.Clear();
             Header.Clear();
             groupVisibilityByName.Clear();
+            entities.Add(new CustomObservableCollection<DatabaseEntity>());
 
             int categoryIndex = 0;
             int columnIndex = 0;
@@ -399,7 +459,7 @@ namespace WDE.DatabaseEditors.ViewModels.Template
         }
 
         private TemplateTableEditorHistoryHandler? historyHandler;
-        protected override IDisposable BulkEdit(string name) => historyHandler?.BulkEdit(name) ?? Disposable.Empty;
+        public override IDisposable BulkEdit(string name) => historyHandler?.BulkEdit(name) ?? Disposable.Empty;
         
         private void RowOnFieldModified()
         {
@@ -410,13 +470,11 @@ namespace WDE.DatabaseEditors.ViewModels.Template
             }
         }
 
-        private async Task AsyncAddEntities(IList<DatabaseEntity> tableDataEntities)
+        private async Task AsyncAddEntities(IReadOnlyList<DatabaseEntity> tableDataEntities)
         {
-            List<DatabaseEntity> finalList = new();
             foreach (var entity in tableDataEntities)
             {
-                if (await AddEntity(entity))
-                    finalList.Add(entity);
+                await AddEntity(entity);
             }
 
             ReEvalVisibility();
@@ -442,6 +500,27 @@ namespace WDE.DatabaseEditors.ViewModels.Template
                     }
                 }
             }
+        }
+
+        protected override async Task<IQuery> GenerateSaveQuery()
+        {
+            IMultiQuery multi = Queries.BeginTransaction(tableDefinition.DataDatabaseType);
+            multi.Add(await base.GenerateSaveQuery());
+            
+            foreach (var pair in forceUpdateCells)
+            {
+                var entity = Entities.FirstOrDefault(e => e.Key == pair.key);
+                var cell = entity?.GetCell(pair.columnName);
+                if (entity != null && cell != null)
+                    multi.Add(queryGenerator.GenerateUpdateFieldQuery(tableDefinition, entity, cell));
+            }
+            return multi.Close();
+        }
+
+        protected override Task AfterSave()
+        {
+            forceUpdateCells.Clear();
+            return Task.CompletedTask;
         }
 
         public IObservable<bool> GetGroupVisibility(string str)

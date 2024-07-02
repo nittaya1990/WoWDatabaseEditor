@@ -6,5 +6,6 @@ namespace WDE.Common.Services
     public interface IConfigureService
     {
         void ShowSettings();
+        T? ShowSettings<T>() where T : IConfigurable;
     }
 }

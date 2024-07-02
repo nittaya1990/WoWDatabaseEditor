@@ -2,8 +2,10 @@
 using System.Text;
 using System.Threading.Tasks;
 using WDE.Common;
+using WDE.Common.Database;
 using WDE.Common.Solution;
 using WDE.Module.Attributes;
+using WDE.SqlQueryGenerator;
 
 namespace WDE.Solutions.Providers
 {
@@ -17,17 +19,17 @@ namespace WDE.Solutions.Providers
             this.registry = registry;
         }
 
-        public async Task<string> GenerateSql(SolutionFolderItem item)
+        public async Task<IQuery> GenerateSql(SolutionFolderItem item)
         {
-            StringBuilder sb = new();
-            sb.AppendLine(" -- " + item.MyName);
+            IMultiQuery query = Queries.BeginTransaction(DataDatabaseType.World);
+            query.Comment(item.MyName);
             foreach (ISolutionItem i in item.Items)
             {
                 if (i.IsExportable)
-                    sb.AppendLine(await registry.Value.GenerateSql(i));
+                    query.Add(await registry.Value.GenerateSql(i));
             }
 
-            return sb.ToString();
+            return query.Close();
         }
     }
 }

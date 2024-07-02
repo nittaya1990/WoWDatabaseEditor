@@ -11,7 +11,7 @@ using WDE.Common.Utils;
 
 namespace WDE.Common.Avalonia.Controls
 {
-    public class ParameterTextBox : FixedTextBox, IStyleable
+    public class ParameterTextBox : FixedTextBox
     {
         private DateTime lastFocusTime;
         private bool specialCopying;
@@ -25,9 +25,73 @@ namespace WDE.Common.Avalonia.Controls
                 base.CustomPaste();
         }
 
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            // S multiplies the value by 1000
+            if (e.Key == Key.S &&
+                e.KeyModifiers == KeyModifiers.None &&
+                float.TryParse(Text, out var textAsFloat) &&
+                SelectionStart == Text.Length)
+            {
+                Text = ((long)(textAsFloat * 1000)).ToString();
+                SelectionStart = SelectionEnd = Text.Length;
+                e.Handled = true;
+            }
+            // ctrl + num: set value to TAG + num
+            else if (
+                (
+                    (e.Key >= Key.D0 && e.Key <= Key.D9) || 
+                    (e.Key >= Key.NumPad0 && e.Key <= Key.NumPad9)
+                ) && 
+                e.KeyModifiers is KeyModifiers.Control or KeyModifiers.Meta)
+            {
+                int num = -1;
+                if (e.Key >= Key.D0 && e.Key <= Key.D9)
+                    num = (int)(e.Key - Key.D0);
+                else if (e.Key >= Key.NumPad0 && e.Key <= Key.NumPad9)
+                    num = (int)(e.Key - Key.NumPad0);
+
+                if (num != -1 && Tag != null && long.TryParse(Tag.ToString(), out var tagNumber))
+                {
+                    Text = (tagNumber * 100 + num).ToString();
+                    SelectionStart = SelectionEnd = Text.Length;
+                    e.Handled = true;
+                }
+            }
+            // ctrl up down - traverse through textboxes
+            else if (e.Key is Key.Down or Key.Up &&
+                     e.KeyModifiers is KeyModifiers.Control or KeyModifiers.Meta)
+            {
+                var nextTextBox = e.Key is Key.Down ? FindNext<ParameterTextBox>(this) : FindPrev<ParameterTextBox>(this);
+                if (nextTextBox != null)
+                {
+                    nextTextBox.Text = Text;
+                    nextTextBox.Focus();
+                    nextTextBox.SelectionStart = nextTextBox.SelectionEnd = (nextTextBox.Text?.Length ?? 0);
+                    e.Handled = true;
+                }
+            }
+            else
+                base.OnKeyDown(e);
+        }
+
+        protected override void OnTextInput(TextInputEventArgs e)
+        {
+            if ((e.Text?.Equals("s", StringComparison.OrdinalIgnoreCase) ?? false) && float.TryParse(Text, out var textAsFloat) &&
+                SelectionStart == Text.Length)
+            {
+                Text = ((long)(textAsFloat * 1000)).ToString();
+                SelectionStart = SelectionEnd = Text.Length;
+                e.Handled = true;
+            }
+            else
+                base.OnTextInput(e);
+        }
+
         private async void PasteAsync()
         {
-            var text = await ((IClipboard)AvaloniaLocator.Current.GetService(typeof(IClipboard))).GetTextAsync();
+            var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+            var text = clipboard == null ? null : await clipboard.GetTextAsync();
 
             if (text is null) 
                 return;
@@ -51,7 +115,7 @@ namespace WDE.Common.Avalonia.Controls
                 Paste();
         }
 
-        private static T? FindNext<T>(IVisual? start) where T : class, IVisual 
+        private static T? FindNext<T>(Visual? start) where T : Visual
         {
             if (start == null)
                 return null;
@@ -61,20 +125,48 @@ namespace WDE.Common.Avalonia.Controls
                 return null;
 
             int startChildrenIndex = 0;
-            while (startChildrenIndex < parent.VisualChildren.Count &&
-                   parent.VisualChildren[startChildrenIndex] != start)
+            var visualChildren = parent.GetVisualChildren().ToList();
+            while (startChildrenIndex < visualChildren.Count &&
+                   !ReferenceEquals(visualChildren[startChildrenIndex], start))
                 startChildrenIndex++;
             
             startChildrenIndex++;
             
-            for (int i = startChildrenIndex; i < parent.VisualChildren.Count; ++i)
+            for (int i = startChildrenIndex; i < visualChildren.Count; ++i)
             {
-                var find = parent.VisualChildren[i].FindDescendantOfType<T>(true);
+                var find = visualChildren[i].FindDescendantOfType<T>(true);
                 if (find != null)
                     return find;
             }
 
             return FindNext<T>(parent);
+        }
+        
+        private static T? FindPrev<T>(Visual? start) where T : Visual 
+        {
+            if (start == null)
+                return null;
+
+            var parent = start.GetVisualParent();
+            if (parent == null)
+                return null;
+
+            var visualChildren = parent.GetVisualChildren().ToList();
+            int startChildrenIndex = visualChildren.Count - 1;
+            while (startChildrenIndex >= 0 &&
+                   !ReferenceEquals(visualChildren[startChildrenIndex], start))
+                startChildrenIndex--;
+            
+            startChildrenIndex--;
+            
+            for (int i = startChildrenIndex; i >= 0 ; --i)
+            {
+                var find = visualChildren[i].FindDescendantOfType<T>(true);
+                if (find != null)
+                    return find;
+            }
+
+            return FindPrev<T>(parent);
         }
         
         protected override void OnGotFocus(GotFocusEventArgs e)
@@ -92,7 +184,7 @@ namespace WDE.Common.Avalonia.Controls
             base.OnPointerPressed(e);
         }
 
-        Type IStyleable.StyleKey => typeof(TextBox);
+        protected override Type StyleKeyOverride => typeof(TextBox);
 
         public bool SpecialCopying
         {

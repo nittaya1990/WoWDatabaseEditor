@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using WDE.Common.History;
+using WDE.Common.Utils;
 using WDE.Module.Attributes;
 
 namespace WDE.History
@@ -11,7 +12,7 @@ namespace WDE.History
     [AutoRegister]
     public class HistoryManager : IHistoryManager, INotifyPropertyChanged
     {
-        private IHistoryAction savedPoint;
+        private IHistoryAction? savedPoint;
         private bool forceNoSave;
         private bool acceptNew;
         private bool canRedo;
@@ -60,38 +61,75 @@ namespace WDE.History
             }
         }
 
+        public bool IsUndoing => !acceptNew;
         public int UndoCount => Past.Count;
         public int RedoCount => Future.Count;
+        public event Action? OnUndo;
+        public event Action? OnRedo;
+
+        public void RemoveHandler(HistoryHandler handler)
+        {
+            handler.ActionPush -= HandlerOnActionPush;
+            handler.ActionDone -= HandlerOnActionDone;
+            handler.ActionDoneWithoutHistory -= HandlerOnActionDoneWithoutHistory;
+        }
 
         public T AddHandler<T>(T handler) where T : HistoryHandler
         {
-            handler.ActionPush += (sender, action) =>
-            {
-                if (!acceptNew)
-                    return;
+            handler.ActionPush += HandlerOnActionPush;
+            handler.ActionDone += HandlerOnActionDone;
+            handler.ActionDoneWithoutHistory += HandlerOnActionDoneWithoutHistory;
+            return handler;
+        }
 
-                EnsureLimits();
-                Past.Add(action);
-                Future.Clear();
-                RecalculateValues();
-            };
-            handler.ActionDone += (sender, action) =>
+        private void HandlerOnActionDoneWithoutHistory(object? sender, IHistoryAction action)
+        {
+            if (!acceptNew)
+                throw new Exception("Cannot do history action when not accepting new actions");
+
+            try
             {
-                if (!acceptNew)
-                    throw new Exception("Cannot do history action when not accepting new actions");
-                
+                acceptNew = false;
+                action.Redo();
+            }
+            finally
+            {
+                acceptNew = true;
+            }
+        }
+
+        private void HandlerOnActionDone(object? sender, IHistoryAction action)
+        {
+            if (!acceptNew)
+                throw new Exception("Cannot do history action when not accepting new actions");
+
+            try
+            {
                 acceptNew = false;
 
                 EnsureLimits();
                 Past.Add(action);
                 Future.Clear();
                 RecalculateValues();
-                
+
                 action.Redo();
-                
+                OnRedo?.Invoke();
+            }
+            finally
+            {
                 acceptNew = true;
-            };
-            return handler;
+            }
+        }
+
+        private void HandlerOnActionPush(object? sender, IHistoryAction e)
+        {
+            if (!acceptNew)
+                return;
+
+            EnsureLimits();
+            Past.Add(e);
+            Future.Clear();
+            RecalculateValues();
         }
 
         private void EnsureLimits()
@@ -102,6 +140,7 @@ namespace WDE.History
 
         public void Undo()
         {
+            Profiler.Start();
             if (Past.Count == 0)
                 throw new NothingToUndoException();
 
@@ -113,6 +152,9 @@ namespace WDE.History
             acceptNew = true;
 
             RecalculateValues();
+
+            OnUndo?.Invoke();
+            Profiler.Stop();
         }
 
         public void Redo()
@@ -128,12 +170,16 @@ namespace WDE.History
             acceptNew = true;
 
             RecalculateValues();
+
+            OnRedo?.Invoke();
         }
 
         public void MarkAsSaved()
         {
             if (Past.Count > 0)
                 savedPoint = Past[^1];
+            else
+                savedPoint = null;
             forceNoSave = false;
             RecalculateValues();
         }
@@ -145,7 +191,7 @@ namespace WDE.History
             RecalculateValues();
         }
 
-        public event PropertyChangedEventHandler PropertyChanged;
+        public event PropertyChangedEventHandler? PropertyChanged;
 
         public void Clear()
         {
@@ -169,7 +215,7 @@ namespace WDE.History
         }
 
         protected virtual void OnPropertyChanged([CallerMemberName]
-            string propertyName = null)
+            string? propertyName = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }

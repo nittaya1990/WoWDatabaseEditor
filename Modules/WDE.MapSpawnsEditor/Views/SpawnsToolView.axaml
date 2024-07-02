@@ -1,0 +1,90 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:views="clr-namespace:WDE.MapSpawnsEditor.Views"
+             xmlns:viewModels="clr-namespace:WDE.MapSpawnsEditor.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:DataType="viewModels:SpawnsToolViewModel"
+             x:Class="WDE.MapSpawnsEditor.Views.SpawnsToolView">
+    <DockPanel>
+        <ToolbarPanel DockPanel.Dock="Top">
+            <Button Content="Active events">
+                <Button.Flyout>
+                    <Flyout>
+                        <ScrollViewer MaxHeight="600">
+                            <ItemsRepeater ItemsSource="{CompiledBinding Events}">
+                                <ItemsRepeater.ItemTemplate>
+                                    <DataTemplate x:DataType="viewModels:GameEventViewModel">
+                                        <CheckBox Margin="0,3,0,3" IsChecked="{CompiledBinding Active}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock MinWidth="23" FontFamily="Consolas,Menlo,Courier,Courier New" Opacity="0.7" Text="{CompiledBinding Entry}" />
+                                                <TextBlock Text="{CompiledBinding Name}" />
+                                            </StackPanel>
+                                        </CheckBox>
+                                    </DataTemplate>
+                                </ItemsRepeater.ItemTemplate>
+                            </ItemsRepeater>
+                        </ScrollViewer>
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
+            <Button Content="Active phases">
+                <Button.Flyout>
+                    <Flyout>
+                        <DockPanel>
+                            <CheckBox DockPanel.Dock="Top" IsChecked="{CompiledBinding ShowAllPhases}">Show all phase ids and masks</CheckBox>
+                            <ScrollViewer MaxHeight="600">
+                                <ItemsRepeater ItemsSource="{CompiledBinding AllPhases}">
+                                    <ItemsRepeater.ItemTemplate>
+                                        <DataTemplate x:DataType="viewModels:GamePhaseViewModel">
+                                            <CheckBox Margin="0,3,0,3" IsChecked="{CompiledBinding Active}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock MinWidth="23" FontFamily="Consolas,Menlo,Courier,Courier New" Opacity="0.7" Text="{CompiledBinding Entry}" />
+                                                    <TextBlock Text="{CompiledBinding Name}" />
+                                                </StackPanel>
+                                            </CheckBox>
+                                        </DataTemplate>
+                                    </ItemsRepeater.ItemTemplate>
+                                </ItemsRepeater>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
+        </ToolbarPanel>
+        <TextBox DockPanel.Dock="Top" Watermark="Search" Text="{CompiledBinding SearchText}" />
+        <ScrollViewer HorizontalScrollBarVisibility="Auto">
+            <VirtualizedTreeView
+                Name="SpawnsList"
+                RowHeight="22"
+                SelectedNode="{CompiledBinding SelectedNode, Mode=TwoWay}"
+                Items="{CompiledBinding SpawnItems}"
+                RequestRender="{CompiledBinding FilterTrigger}"
+                IsFiltered="True"
+                DoubleTapped="InputElement_OnDoubleTapped"
+                KeyDown="SpawnsList_OnKeyDown">
+                <VirtualizedTreeView.DataTemplates>
+                    <DataTemplate x:DataType="viewModels:SpawnGroup" DataType="viewModels:SpawnGroup">
+                        <DockPanel>
+                            <WdeImage Width="16" Height="16" Margin="0,0,2,0" Image="{CompiledBinding Icon}" />
+                            <TextBlock VerticalAlignment="Center" Text="{CompiledBinding Header}" />
+                        </DockPanel>
+                    </DataTemplate>
+                    <DataTemplate x:DataType="viewModels:SpawnInstance" DataType="viewModels:SpawnInstance">
+                        <DockPanel>
+                            <WdeImage Width="16" Height="16" Margin="0,0,2,0" Image="{CompiledBinding Icon}" />
+                            <Ellipse Width="6" Height="6" Fill="LightGray" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="0,0,4,0" IsVisible="{CompiledBinding IsSpawned}" />
+                            <TextBlock VerticalAlignment="Center" Text="{CompiledBinding Header}" />
+                        </DockPanel>
+                    </DataTemplate>
+                </VirtualizedTreeView.DataTemplates>
+                <VirtualizedTreeView.ContextMenu>
+                    <FixedContextMenu>
+                        <MenuItem Header="Spawn" Command="{CompiledBinding AddSpawn}" CommandParameter="{CompiledBinding SelectedNode}" />
+                    </FixedContextMenu>
+                </VirtualizedTreeView.ContextMenu>
+            </VirtualizedTreeView>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

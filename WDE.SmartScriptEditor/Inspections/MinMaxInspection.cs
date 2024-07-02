@@ -20,11 +20,13 @@ namespace WDE.SmartScriptEditor.Inspections
 
         public InspectionResult? Inspect(SmartBaseElement e)
         {
-            if (e.GetParameter(pram).Value <= e.GetParameter(pram2).Value)
+            var a = e.GetParameter(pram).Value;
+            var b = e.GetParameter(pram2).Value;
+            if (a < 0 || b < 0 || a <= b)
                 return null;
             return new InspectionResult()
             {
-                Line = e.LineId,
+                Line = e.VirtualLineId,
                 Message = $"`{parameterName}` must be less or equal to `{parameterName2}`",
                 Severity = DiagnosticSeverity.Error
             };

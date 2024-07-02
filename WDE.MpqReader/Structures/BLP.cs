@@ -1,4 +1,5 @@
 using System;
+using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using WDE.MpqReader.Readers;
 
@@ -8,20 +9,39 @@ namespace WDE.MpqReader.Structures
     {
         public BLPHeader Header { get; }
         public Rgba32[][] Data { get; }
+        public uint RealWidth { get; }
+        public uint RealHeight { get; }
     
-        public BLP(byte[] bytes, int start, int length)
+        public BLP(byte[] bytes, int start, int length, int maxSize = 0)
         {
             var reader = new MemoryBinaryReader(bytes, start, length);
             Header = new BLPHeader(reader);
             uint w = Header.Width;
             uint h = Header.Height;
-            Data = new Rgba32[Header.MipCount][];
+            int mips = (int)Header.MipCount;
+            int mipStart = 0;
+            // there are multiple mip levels, so depending on max size, let's skip the biggest
+            if (maxSize > 0 && Header.Mips != MipmapLevelAndFlagType.MipsNone)
+            {
+                while (w > maxSize || h > maxSize && w > 2 && h > 2 && mips >= 2)
+                {
+                    w /= 2;
+                    h /= 2;
+                    mips--;
+                    mipStart++;
+                }
+            }
+
+            RealWidth = w;
+            RealHeight = h;
+            Data = new Rgba32[mips][];
 
             int mipLevel;
-            for (mipLevel = 0; mipLevel < Header.MipCount; ++mipLevel)
+            for (mipLevel = 0; mipLevel < mips; ++mipLevel)
             {
-                reader.Offset = (int)Header.GetMipOffset(mipLevel);
-                var mipReader = new LimitedReader(reader, (int)Header.GetMipSize(mipLevel));
+                var realFileMipLevel = mipLevel + mipStart;
+                reader.Offset = (int)Header.GetMipOffset(realFileMipLevel);
+                var mipReader = new LimitedReader(reader, (int)Header.GetMipSize(realFileMipLevel));
 
                 if (Header.ColorEncoding == ColorEncoding.Palette)
                 {
@@ -63,7 +83,7 @@ namespace WDE.MpqReader.Structures
                     break;
             }
 
-            if ((w == 0 || h == 0) && mipLevel < Header.MipCount)
+            if ((w == 0 || h == 0) && mipLevel < mips)
             {
                 var trimmed = new Rgba32[mipLevel][];
                 Array.Copy(Data, trimmed, mipLevel);
@@ -125,6 +145,32 @@ namespace WDE.MpqReader.Structures
             MipsHandmade = 0x2, // not supported
             FlagsMipmapMask = 0xF, // level
             FlagsUnk0X10 = 0x10,
+        }
+    }
+
+    public static class BlpExtensions
+    {
+        public static void SaveToPng(this BLP blp, string path, int mipLevel)
+        {
+            int width = (int)blp.RealWidth;
+            int height = (int)blp.RealHeight;
+            for (int i = 0; i < mipLevel; ++i)
+            {
+                width /= 2;
+                height /= 2;
+            }
+            using Image<Rgba32> img = new Image<Rgba32>(width, height);
+            {
+                img.ProcessPixelRows(x =>
+                {
+                    for (int y = 0; y < x.Height; ++y)
+                    {
+                        var span = x.GetRowSpan(y);
+                        blp.Data[mipLevel].AsSpan(y * width, width).CopyTo(span);
+                    }
+                });
+            }
+            img.SaveAsPng(path);
         }
     }
 

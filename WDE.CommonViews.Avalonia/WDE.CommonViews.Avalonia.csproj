@@ -1,11 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <OutputType>Library</OutputType>
-        <TargetFramework>net6.0</TargetFramework>
+        <TargetFramework>net8.0</TargetFramework>
         <Configurations>Debug;Release</Configurations>
         <Platforms>AnyCPU</Platforms>
         <Nullable>enable</Nullable>
-        <WarningsAsErrors>nullable</WarningsAsErrors>
+        <WarningsAsErrors>$(WarningsAsErrors),nullable</WarningsAsErrors>
     </PropertyGroup>
     <PropertyGroup>
         <OutputPath>..\bin\$(Configuration)\</OutputPath>
@@ -17,8 +17,8 @@
     </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\AvaloniaEdit\src\AvaloniaEdit\AvaloniaEdit.csproj" />
+        <ProjectReference Include="..\Modules\WDE.Sessions\WDE.Sessions.csproj" />
         <ProjectReference Include="..\WDE.Common.Avalonia\WDE.Common.Avalonia.csproj" />
-        <ProjectReference Include="..\WDE.DatabaseEditors\WDE.DatabaseEditors.csproj" />
         <ProjectReference Include="..\WDE.MPQ\WDE.MPQ.csproj" />
         <ProjectReference Include="..\WDE.MySqlDatabaseCommon\WDE.MySqlDatabaseCommon.csproj" />
         <ProjectReference Include="..\WDE.Parameters\WDE.Parameters.csproj" />
@@ -26,6 +26,7 @@
         <ProjectReference Include="..\WDE.Solutions\WDE.Solutions.csproj" />
         <ProjectReference Include="..\WDE.SQLEditor\WDE.SQLEditor.csproj" />
         <ProjectReference Include="..\WDE.Updater\WDE.Updater.csproj" />
+        <ProjectReference Include="..\WoWDatabaseEditor.Common\WDE.CMMySqlDatabase\WDE.CMMySqlDatabase.csproj" />
         <ProjectReference Include="..\WoWDatabaseEditor.Common\WDE.Common\WDE.Common.csproj" />
         <ProjectReference Include="..\WoWDatabaseEditor.Common\WDE.DbcStore\WDE.DbcStore.csproj" />
         <ProjectReference Include="..\WoWDatabaseEditor.Common\WDE.History\WDE.History.csproj" />
@@ -35,15 +36,5 @@
         <None Update="Resources\*">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </None>
-    </ItemGroup>
-    <ItemGroup>
-      <Compile Update="Sessions\SessionToolView.axaml.cs">
-        <DependentUpon>SessionToolView.axaml</DependentUpon>
-        <SubType>Code</SubType>
-      </Compile>
-      <Compile Update="SQLEditor\Views\CustomQueryEditorView.axaml.cs">
-        <DependentUpon>CustomQueryEditorView.axaml</DependentUpon>
-        <SubType>Code</SubType>
-      </Compile>
     </ItemGroup>
 </Project>

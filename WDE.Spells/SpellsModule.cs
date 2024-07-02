@@ -1,6 +1,7 @@
 ﻿using System.Threading.Tasks;
 using Prism.Events;
 using Prism.Ioc;
+using WDE.Common;
 using WDE.Common.Database;
 using WDE.Common.Events;
 using WDE.Common.Parameters;
@@ -24,9 +25,18 @@ namespace WDE.Spells
                 .Subscribe(() =>
                     {
                         var factory = containerProvider.Resolve<IParameterFactory>();
-                        factory.RegisterCombined("SpellParameter", "DbcSpellParameter", "DatabaseSpellParameter", (dbc, db) => new SpellParameter(dbc, db));
-                        factory.RegisterDepending("MultiSpellParameter", "SpellParameter",  spells => new MultiSpellParameter(spells));
+                        var spellPicker = this.containerProvider.Resolve<ISpellEntryProviderService>();
+                        var parameterPickerService = this.containerProvider.Resolve<IParameterPickerService>();
+
+                        void RegisterSpellParameter(string key, string? customCounterTable = null) =>
+                           factory.RegisterCombined(key, "DbcSpellParameter", "DatabaseSpellParameter", (dbc, db) => new SpellParameter(spellPicker, dbc, db, customCounterTable), QuickAccessMode.Limited);
+                        
+                        RegisterSpellParameter("SpellParameter");
+                        RegisterSpellParameter("Spell(spell_override)Parameter", "spell_override");
+                        
+                        factory.RegisterDepending("MultiSpellParameter", "SpellParameter",  spells => new MultiStringParameter(spells, parameterPickerService));
                         factory.RegisterDepending("SpellAreaSpellParameter", "SpellParameter", spells => new SpellAreaSpellParameter(spells));
+                        factory.RegisterDepending("SpellOrRankedSpellParameter", "SpellParameter", spells => new SpellOrRankedSpellParameter(spells));
                     },
                     ThreadOption.PublisherThread,
                     true);

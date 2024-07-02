@@ -14,25 +14,30 @@ namespace WDE.MPQ
             this.list = list;
         }
     
+        public IMpqArchive Clone()
+        {
+            return new MpqArchiveSet(list.Select(l => l.Clone()).ToArray());
+        }
+        
         public void Dispose()
         {
             foreach (var l in list)
                 l.Dispose();
         }
 
-        public IList<string> KnownFiles => list.SelectMany(l => l.KnownFiles).ToList();
+        //public IList<string> KnownFiles => list.SelectMany(l => l.KnownFiles).ToList();
     
-        public int? ReadFile(byte[] buffer, string path)
+        public int? ReadFile(byte[] buffer, int size, string path)
         {
             foreach (var l in list)
             {
                 try
                 {
-                    var bytes = l.ReadFile(buffer, path);
+                    var bytes = l.ReadFile(buffer, size, path);
                     if (bytes != null)
                         return bytes;
                 }
-                catch (Exception _)
+                catch (Exception)
                 {
                 }
             }
@@ -49,7 +54,7 @@ namespace WDE.MPQ
                     if (bytes != null)
                         return bytes;
                 }
-                catch (Exception _)
+                catch (Exception)
                 {
                 }
             }
@@ -58,5 +63,6 @@ namespace WDE.MPQ
 
         public IMpqArchiveDetails Details { get; set; } = null!;
         public IMpqUserDataHeader UserDataHeader { get; set; } = null!;
+        public MpqLibrary Library => list.Length > 0 ? list[0].Library : MpqLibrary.Managed;
     }
 }

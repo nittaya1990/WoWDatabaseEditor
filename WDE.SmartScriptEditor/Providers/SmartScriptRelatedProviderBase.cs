@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using WDE.Common.Database;
 using WDE.Common.Solution;
@@ -13,33 +14,62 @@ namespace WDE.SmartScriptEditor.Providers
         {
             this.databaseProvider = databaseProvider;
         }
+
+        private RelatedSolutionItem.RelatedType SmartScriptToRelatedType(SmartScriptType type)
+        {
+            switch (type)
+            {
+                case SmartScriptType.Creature:
+                    return RelatedSolutionItem.RelatedType.CreatureEntry;
+                case SmartScriptType.GameObject:
+                    return RelatedSolutionItem.RelatedType.GameobjectEntry;
+                case SmartScriptType.Template:
+                    return RelatedSolutionItem.RelatedType.Template;
+                case SmartScriptType.TimedActionList:
+                    return RelatedSolutionItem.RelatedType.TimedActionList;
+                case SmartScriptType.Quest:
+                    return RelatedSolutionItem.RelatedType.QuestEntry;
+                case SmartScriptType.StaticSpell:
+                case SmartScriptType.Spell:
+                    return RelatedSolutionItem.RelatedType.Spell;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(type), $"{type} is not expected to be invoked here");
+            }
+        }
         
-        public Task<RelatedSolutionItem?> GetRelated(T item)
+        public async Task<RelatedSolutionItem?> GetRelated(T item)
         {
             if (item.SmartType != SmartScriptType.Creature &&
-                item.SmartType != SmartScriptType.GameObject)
-                return Task.FromResult<RelatedSolutionItem?>(null);
+                item.SmartType != SmartScriptType.GameObject &&
+                item.SmartType != SmartScriptType.Template &&
+                item.SmartType != SmartScriptType.TimedActionList &&
+                item.SmartType != SmartScriptType.Quest &&
+                item.SmartType != SmartScriptType.Spell &&
+                item.SmartType != SmartScriptType.StaticSpell)
+                return null;
 
-            if (item.Entry >= 0)
+            if (item.Entry.HasValue)
             {
-                return Task.FromResult<RelatedSolutionItem?>(
-                    new RelatedSolutionItem(item.SmartType == SmartScriptType.Creature ? 
-                        RelatedSolutionItem.RelatedType.CreatureEntry : 
-                        RelatedSolutionItem.RelatedType.GameobjectEntry, item.Entry));
+                return new RelatedSolutionItem(SmartScriptToRelatedType(item.SmartType), item.Entry.Value);
+            }
+
+            if (item.EntryOrGuid >= 0)
+            {
+                return new RelatedSolutionItem(SmartScriptToRelatedType(item.SmartType), item.EntryOrGuid);
             }
 
             if (item.SmartType == SmartScriptType.Creature)
             {
-                var creature = databaseProvider.GetCreatureByGuid((uint)(-item.Entry));
+                var creature = await databaseProvider.GetCreatureByGuidAsync(0, (uint)(-item.EntryOrGuid));
                 if (creature == null)
-                    return Task.FromResult<RelatedSolutionItem?>(null);
-                return Task.FromResult<RelatedSolutionItem?>(new RelatedSolutionItem(RelatedSolutionItem.RelatedType.CreatureEntry, creature.Entry));
+                    return null;
+                return new RelatedSolutionItem(RelatedSolutionItem.RelatedType.CreatureEntry, creature.Entry);
             }
             
-            var gameobject = databaseProvider.GetGameObjectByGuid((uint)(-item.Entry));
+            var gameobject = await databaseProvider.GetGameObjectByGuidAsync(0, (uint)(-item.EntryOrGuid));
             if (gameobject == null)
-                return Task.FromResult<RelatedSolutionItem?>(null);
-            return Task.FromResult<RelatedSolutionItem?>(new RelatedSolutionItem(RelatedSolutionItem.RelatedType.GameobjectEntry, gameobject.Entry));
+                return null;
+            return new RelatedSolutionItem(RelatedSolutionItem.RelatedType.GameobjectEntry, gameobject.Entry);
         }
     }
 }

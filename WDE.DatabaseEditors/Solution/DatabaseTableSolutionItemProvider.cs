@@ -3,14 +3,12 @@ using System.Threading.Tasks;
 using WDE.Common;
 using WDE.Common.CoreVersion;
 using WDE.Common.Database;
-using WDE.Common.Parameters;
-using WDE.Common.Providers;
-using WDE.Common.Services.MessageBox;
+using WDE.Common.Services;
 using WDE.Common.Solution;
 using WDE.Common.Types;
 using WDE.DatabaseEditors.Data.Interfaces;
 using WDE.DatabaseEditors.Data.Structs;
-using WDE.DatabaseEditors.Loaders;
+using WDE.DatabaseEditors.Services;
 using WDE.Module.Attributes;
 
 namespace WDE.DatabaseEditors.Solution
@@ -19,24 +17,15 @@ namespace WDE.DatabaseEditors.Solution
     public class DatabaseTableSolutionItemProviderProvider : ISolutionItemProviderProvider
     {
         private readonly ITableDefinitionProvider definitionProvider;
-        private readonly IDatabaseTableDataProvider tableDataProvider;
-        private readonly IItemFromListProvider itemFromListProvider;
-        private readonly IMessageBoxService messageBoxService;
-        private readonly IParameterFactory parameterFactory;
-        private readonly IDatabaseProvider databaseProvider;
+        private readonly ITableOpenService tableOpenService;
+        private readonly ICachedDatabaseProvider databaseProvider;
 
         public DatabaseTableSolutionItemProviderProvider(ITableDefinitionProvider definitionProvider,
-            IDatabaseTableDataProvider tableDataProvider, 
-            IItemFromListProvider itemFromListProvider,
-            IMessageBoxService messageBoxService,
-            IParameterFactory parameterFactory,
-            IDatabaseProvider databaseProvider)
+            ITableOpenService tableOpenService,
+            ICachedDatabaseProvider databaseProvider)
         {
             this.definitionProvider = definitionProvider;
-            this.tableDataProvider = tableDataProvider;
-            this.itemFromListProvider = itemFromListProvider;
-            this.messageBoxService = messageBoxService;
-            this.parameterFactory = parameterFactory;
+            this.tableOpenService = tableOpenService;
             this.databaseProvider = databaseProvider;
         }
         
@@ -44,54 +33,43 @@ namespace WDE.DatabaseEditors.Solution
         {
             foreach (var definition in definitionProvider.Definitions)
             {
-                yield return new DatabaseTableSolutionItemProvider(definition, 
-                    tableDataProvider,
-                    itemFromListProvider,
-                    messageBoxService, 
-                    parameterFactory,
-                    databaseProvider,
-                    true);
+                if (definition.RecordMode == RecordMode.SingleRow)
+                    yield return new DatabaseTableSolutionItemProvider(definition, databaseProvider, tableOpenService, true, definition.SkipQuickLoad);
+                else
+                    yield return new DatabaseTableSolutionItemNumberedProvider(definition, databaseProvider, tableOpenService, true, definition.SkipQuickLoad);
             }
             foreach (var definition in definitionProvider.IncompatibleDefinitions)
             {
-                yield return new DatabaseTableSolutionItemProvider(definition, 
-                    tableDataProvider,
-                    itemFromListProvider,
-                    messageBoxService, 
-                    parameterFactory,
-                    databaseProvider,
-                    false);
+                if (definition.RecordMode == RecordMode.SingleRow)
+                    yield return new DatabaseTableSolutionItemProvider(definition, databaseProvider, tableOpenService, false, definition.SkipQuickLoad);
+                else
+                    yield return new DatabaseTableSolutionItemNumberedProvider(definition, databaseProvider, tableOpenService, false, definition.SkipQuickLoad);
             }
         }
     }
 
     internal class DatabaseTableSolutionItemProvider : ISolutionItemProvider, IRelatedSolutionItemCreator
     {
-        private readonly IDatabaseTableDataProvider tableDataProvider;
-        private readonly IItemFromListProvider itemFromListProvider;
-        private readonly IMessageBoxService messageBoxService;
-        private readonly IParameterFactory parameterFactory;
-        private readonly IDatabaseProvider databaseProvider;
-        private readonly DatabaseTableDefinitionJson definition;
-        private readonly ImageUri itemIcon;
+        protected readonly ICachedDatabaseProvider databaseProvider;
+        protected readonly ITableOpenService tableOpenService;
+        protected readonly DatabaseTableDefinitionJson definition;
+        protected readonly ImageUri itemIcon;
         private bool isCompatible;
-        
+
+        public bool ByDefaultHideFromQuickStart { get; }
+
         internal DatabaseTableSolutionItemProvider(DatabaseTableDefinitionJson definition,
-            IDatabaseTableDataProvider tableDataProvider, 
-            IItemFromListProvider itemFromListProvider, 
-            IMessageBoxService messageBoxService,
-            IParameterFactory parameterFactory,
-            IDatabaseProvider databaseProvider,
-            bool isCompatible)
+            ICachedDatabaseProvider databaseProvider,
+            ITableOpenService tableOpenService,
+            bool isCompatible,
+            bool byDefaultIsHiddenInQuickLoad)
         {
-            this.tableDataProvider = tableDataProvider;
-            this.itemFromListProvider = itemFromListProvider;
-            this.messageBoxService = messageBoxService;
-            this.parameterFactory = parameterFactory;
             this.databaseProvider = databaseProvider;
+            this.tableOpenService = tableOpenService;
             this.definition = definition;
             this.itemIcon = new ImageUri($"Icons/document_big.png");
             this.isCompatible = isCompatible;
+            this.ByDefaultHideFromQuickStart = byDefaultIsHiddenInQuickLoad;
         }
 
         public string GetName() => definition.Name;
@@ -109,57 +87,27 @@ namespace WDE.DatabaseEditors.Solution
 
         public bool IsCompatibleWithCore(ICoreVersion core) => isCompatible;
 
-        public async Task<ISolutionItem?> CreateSolutionItem()
+        public Task<ISolutionItem?> CreateSolutionItem()
         {
-            var parameter = parameterFactory.Factory(definition.Picker);
-            var key = await itemFromListProvider.GetItemFromList(parameter.HasItems ? parameter.Items! : new Dictionary<long, SelectOption>(), false);
-            if (key.HasValue)
-            {
-                return await Create((uint)key.Value);
-            }
-            return null;
+            return tableOpenService.TryCreate(definition);
         }
 
-        private async Task<ISolutionItem?> Create(uint key)
+        public Task<IReadOnlyCollection<ISolutionItem>> CreateMultipleSolutionItems()
         {
-            var data = await tableDataProvider.Load(definition.Id, key);
-                
-            if (data == null)
-                return null;
-                
-            if (data.TableDefinition.IsMultiRecord)
-                return new DatabaseTableSolutionItem(key, false, definition.Id);
-            else
-            {
-                if (data.Entities.Count == 0)
-                    return null; 
-                    
-                if (!data.Entities[0].ExistInDatabase)
-                {
-                    if (!await messageBoxService.ShowDialog(new MessageBoxFactory<bool>()
-                        .SetTitle("Entity doesn't exist in database")
-                        .SetMainInstruction($"Entity {data.Entities[0].Key} doesn't exist in the database")
-                        .SetContent(
-                            "WoW Database Editor will be generating DELETE/INSERT query instead of UPDATE. Do you want to continue?")
-                        .WithYesButton(true)
-                        .WithNoButton(false).Build()))
-                        return null;
-                }
-                return new DatabaseTableSolutionItem(data.Entities[0].Key, data.Entities[0].ExistInDatabase, definition.Id);
-            }
+            throw new System.NotImplementedException();
         }
 
-        public Task<ISolutionItem?> CreateRelatedSolutionItem(RelatedSolutionItem related)
+        public async Task<ISolutionItem?> CreateRelatedSolutionItem(RelatedSolutionItem related)
         {
             if (definition.Picker == "GossipMenuParameter" &&
                 related.Type == RelatedSolutionItem.RelatedType.CreatureEntry)
             {
-                var template = databaseProvider.GetCreatureTemplate((uint)related.Entry);
+                var template = await databaseProvider.GetCreatureTemplate((uint)related.Entry);
                 if (template == null || template.GossipMenuId == 0)
-                    return Task.FromResult<ISolutionItem?>(null);
-                return Create(template.GossipMenuId);
+                    return null;
+                return await tableOpenService.Create(definition, new DatabaseKey(template.GossipMenuId));
             }
-            return Create((uint)related.Entry);
+            return await tableOpenService.Create(definition, new DatabaseKey(related.Entry));
         }
 
         public bool CanCreatedRelatedSolutionItem(RelatedSolutionItem related)
@@ -167,7 +115,7 @@ namespace WDE.DatabaseEditors.Solution
             if (related.Type == RelatedSolutionItem.RelatedType.CreatureEntry &&
                 definition.Picker == "GossipMenuParameter")
             {
-                var template = databaseProvider.GetCreatureTemplate((uint)related.Entry);
+                var template = databaseProvider.GetCachedCreatureTemplate((uint)related.Entry);
                 return template != null && template.GossipMenuId != 0;
             }
             
@@ -181,4 +129,19 @@ namespace WDE.DatabaseEditors.Solution
                    definition.Picker == "QuestParameter";
         }
     }
+    
+    internal class DatabaseTableSolutionItemNumberedProvider : DatabaseTableSolutionItemProvider, INumberSolutionItemProvider
+    {
+        public Task<ISolutionItem?> CreateSolutionItem(long number)
+        {
+            return tableOpenService.Create(definition, new DatabaseKey(number));
+        }
+
+        public string ParameterName => definition.Picker;
+
+        internal DatabaseTableSolutionItemNumberedProvider(DatabaseTableDefinitionJson definition, ICachedDatabaseProvider databaseProvider, ITableOpenService tableOpenService, bool isCompatible, bool byDefaultIsHiddenInQuickLoad) : base(definition, databaseProvider, tableOpenService, isCompatible, byDefaultIsHiddenInQuickLoad)
+        {
+        }
+    }
+
 }

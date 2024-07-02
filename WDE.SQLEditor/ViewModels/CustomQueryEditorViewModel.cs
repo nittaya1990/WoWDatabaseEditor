@@ -3,8 +3,10 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using AsyncAwaitBestPractices.MVVM;
+using Microsoft.Extensions.Logging;
 using Prism.Commands;
 using Prism.Mvvm;
+using PropertyChanged.SourceGenerator;
 using WDE.Common;
 using WDE.Common.Database;
 using WDE.Common.History;
@@ -17,15 +19,18 @@ using WDE.Module.Attributes;
 using WDE.MVVM;
 using WDE.MVVM.Observable;
 using WDE.SQLEditor.Solutions;
+using WDE.SqlQueryGenerator;
 
 namespace WDE.SQLEditor.ViewModels
 {
     [AutoRegister]
-    public class CustomQueryEditorViewModel : ObservableBase, ISolutionItemDocument
+    public partial class CustomQueryEditorViewModel : ObservableBase, ISolutionItemDocument
     {
         private INativeTextDocument code;
         public ImageUri? Icon { get; } = new("Icons/document_sql.png");
 
+        [Notify] private DataDatabaseType database;
+        
         public CustomQueryEditorViewModel(IMySqlExecutor mySqlExecutor, 
             IStatusBar statusBar, 
             IDatabaseProvider databaseProvider,
@@ -35,14 +40,14 @@ namespace WDE.SQLEditor.ViewModels
             CustomSqlSolutionItem solutionItem)
         {
             sql.FromString(solutionItem.Query ?? "");
-            Code = sql;
+            code = sql;
             Title = solutionItem.Name;
             AutoDispose(sql.Length.SubscribeAction(_ => IsModified = true));
             IsModified = false;
             SolutionItem = solutionItem;
-            ExecuteSql = new DelegateCommand(() =>
+            ExecuteSql = new AsyncAutoCommand(() =>
             {
-                taskRunner.ScheduleTask("Executing query",
+                return taskRunner.ScheduleTask("Executing query",
                     async () =>
                     {
                         statusBar.PublishNotification(new PlainNotification(NotificationType.Info, "Executing query"));
@@ -54,16 +59,16 @@ namespace WDE.SQLEditor.ViewModels
                         catch (Exception e)
                         {
                             statusBar.PublishNotification(new PlainNotification(NotificationType.Error, "Failure during query execution"));
-                            Console.WriteLine(e);
+                            LOG.LogError(e, "Error during query execution");
                         }
                     });
             }, () => databaseProvider.IsConnected);
             IsLoading = false;
-            Save = new DelegateCommand(() =>
+            Save = new AsyncAutoCommand(async () =>
             {
                 solutionItem.Query = code.ToString();
-                ExecuteSql.Execute(null);
                 IsModified = false;
+                await ExecuteSql.ExecuteAsync();
             });
         }
 
@@ -73,7 +78,7 @@ namespace WDE.SQLEditor.ViewModels
             set => SetProperty(ref code, value);
         }
 
-        public ICommand ExecuteSql { get; }
+        public IAsyncCommand ExecuteSql { get; }
 
         private bool isLoading = false;
         private bool isModified;
@@ -90,8 +95,8 @@ namespace WDE.SQLEditor.ViewModels
         public ICommand Copy { get; } = AlwaysDisabledCommand.Command;
         public ICommand Cut { get; } = AlwaysDisabledCommand.Command;
         public ICommand Paste { get; } = AlwaysDisabledCommand.Command;
-        public ICommand Save { get; }
-        public IAsyncCommand CloseCommand { get; set; } = null;
+        public IAsyncCommand Save { get; }
+        public IAsyncCommand? CloseCommand { get; set; } = null;
         public bool CanClose { get; } = true;
 
         public bool IsModified
@@ -100,11 +105,11 @@ namespace WDE.SQLEditor.ViewModels
             private set => SetProperty(ref isModified, value);
         }
 
-        public IHistoryManager History { get; } = null;
+        public IHistoryManager? History { get; } = null;
         public ISolutionItem SolutionItem { get; }
-        public Task<string> GenerateQuery()
+        public Task<IQuery> GenerateQuery()
         {
-            return Task.FromResult(code.ToString());
+            return Task.FromResult(Queries.Raw(database, code.ToString()));
         }
     }
 }

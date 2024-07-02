@@ -6,10 +6,9 @@ namespace WDE.SmartScriptEditor.Editor
 {
     public interface ISmartScriptDatabaseProvider
     {
-        Task<IEnumerable<ISmartScriptLine>> GetScriptFor(int entryOrGuid, SmartScriptType type);
-        Task InstallScriptFor(int entryOrGuid, SmartScriptType type, IList<ISmartScriptLine> script);
-        IEnumerable<IConditionLine> GetConditionsForScript(int entryOrGuid, SmartScriptType type);
-        IEnumerable<IConditionLine> GetConditionsForSourceTarget(int entryOrGuid, SmartScriptType type);
-        Task InstallConditionsForScript(IEnumerable<IConditionLine> conditions, int entryOrGuid, SmartScriptType type);
+        Task<IReadOnlyList<ISmartScriptLine>> GetScriptFor(uint entry, int entryOrGuid, SmartScriptType type);
+        Task<IReadOnlyList<IConditionLine>> GetConditionsForScript(uint? entry, int entryOrGuid, SmartScriptType type);
+        Task<IReadOnlyList<IConditionLine>> GetConditionsForSourceTarget(uint? entry, int entryOrGuid, SmartScriptType type);
+        Task<IReadOnlyList<ISmartScriptLine>> FindSmartScriptLinesBy(IEnumerable<(IDatabaseProvider.SmartLinePropertyType what, int whatValue, int parameterIndex, long valueToSearch)> conditions);
     }
 }

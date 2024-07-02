@@ -20,11 +20,16 @@ namespace WDE.SmartScriptEditor.Inspections
             {
                 var current = script.Events[index];
 
-                if (current.Chance.Value == 100 && current.Conditions.Count == 0 && previous.Conditions.Count == 0 && previous.Equals(current))
+                if (current.Chance.Value == 100 && 
+                    current.Conditions.Count == 0 && 
+                    previous.Conditions.Count == 0 && 
+                    previous.Equals(current) &&
+                    (previous.Actions.Count == 0 ||
+                     previous.Actions[^1].Source.Id <= SmartConstants.SourceSelf)) // if source != none or self, then it's not a duplicate
                 {
                     yield return new InspectionResult()
                     {
-                        Line = current.LineId,
+                        Line = current.VirtualLineId,
                         Severity = DiagnosticSeverity.Info,
                         Message = "The event is a duplicate of the previous one. You can put all actions in a single event."
                     };

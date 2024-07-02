@@ -1,14 +1,11 @@
-﻿using System.IO;
-using TheMaths;
-
-namespace WDE.MpqReader.Readers
+﻿namespace WDE.MpqReader.Readers
 {
     public class FileBinaryReader : IBinaryReader
     {
         private readonly FileStream fileStream;
         private readonly BinaryReader binaryReader;
 
-        public byte[] ReadBytes(int length)
+        public ReadOnlyMemory<byte> ReadBytes(int length)
         {
             return binaryReader.ReadBytes(length);
         }
@@ -21,6 +18,11 @@ namespace WDE.MpqReader.Readers
         public uint ReadUInt32()
         {
             return binaryReader.ReadUInt32();
+        }
+
+        public ulong ReadUInt64()
+        {
+            return binaryReader.ReadUInt64();
         }
 
         public short ReadInt16()

@@ -9,7 +9,11 @@
         <Setter Property="Padding" Value="0,0,0,0" />
     </Style>
     
-    <Style Selector="controls1|CompletionComboBox.NoPadding ListBoxItem > ContentPresenter">
+    <Style Selector="controls1|CompletionComboBox ListBoxItem">
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+
+    <Style Selector="controls1|CompletionComboBox ListBoxItem > ContentPresenter">
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
     
@@ -30,6 +34,7 @@
                                   Background="{TemplateBinding Background}"
                                   Padding="{TemplateBinding Padding}"
                                   VerticalAlignment="Stretch"
+                                  HorizontalContentAlignment="Stretch"
                                   Name="PART_Button"
                                   IsChecked="{TemplateBinding IsDropDownOpen, Mode=TwoWay}" ContentTemplate="{TemplateBinding ButtonItemTemplate}"></ToggleButton>
                     <Popup Name="PART_Popup"
@@ -40,8 +45,8 @@
                            MaxWidth="700"
                            MaxHeight="600"
                            PlacementConstraintAdjustment="SlideY,SlideX"
-                           PlacementMode="Bottom"
-                           PlacementGravity="Bottom"
+                           Placement="BottomEdgeAlignedLeft"
+                           PlacementGravity="BottomLeft"
                            PlacementTarget="PART_Button">
                         <Border Name="PART_SuggestionsContainer"
                                 Padding="{DynamicResource AutoCompleteListMargin}"
@@ -50,7 +55,7 @@
                                 Background="{DynamicResource AutoCompleteBoxSuggestionsListBackground}"
                                 CornerRadius="{DynamicResource OverlayCornerRadius}">
                             <DockPanel>
-                                <TextBox Name="PART_SearchTextBox" Text="{TemplateBinding SearchText}" DockPanel.Dock="Top" />
+                                <TextBox Name="PART_SearchTextBox" Watermark="{TemplateBinding Watermark}" Text="{TemplateBinding SearchText, Mode=TwoWay}" DockPanel.Dock="Top" />
                                 <ListBox Name="PART_SelectingItemsControl"
                                          BorderThickness="0"
                                          Background="Transparent"

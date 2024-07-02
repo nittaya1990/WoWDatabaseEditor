@@ -10,7 +10,7 @@ namespace WDE.PacketViewer.Processing.ProcessorProviders
 #if DEBUG
     [AutoRegister]
 #endif
-    public class ActionReactionDumperProvider : IPacketDumperProvider
+    public class ActionReactionDumperProvider : ITextPacketDumperProvider
     {
         private readonly IActionReactionProcessorCreator creator;
 
@@ -23,8 +23,9 @@ namespace WDE.PacketViewer.Processing.ProcessorProviders
         public string Name => "Action - reaction";
         public string Description => "Debug";
         public string Extension => "story";
+        public bool RequiresSplitUpdateObject => true;
 
-        public Task<IPacketTextDumper> CreateDumper()
+        public Task<IPacketTextDumper> CreateDumper(IParsingSettings settings)
         {
             return Task.FromResult<IPacketTextDumper>(creator.CreateTextProcessor());
         }

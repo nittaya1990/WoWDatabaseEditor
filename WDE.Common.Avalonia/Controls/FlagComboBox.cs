@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using System.Reactive.Linq;
 using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Collections;
@@ -12,14 +13,17 @@ using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using AvaloniaStyles.Controls;
+using AvaloniaStyles.Controls.FastTableView;
+using AvaloniaStyles.Converters;
 using FuzzySharp;
 using WDE.Common.Parameters;
 using WDE.MVVM.Observable;
 
 namespace WDE.Common.Avalonia.Controls
 {
-    public class FlagComboBox : CompletionComboBox, IStyleable
+    public class FlagComboBox : CompletionComboBox
     {
         private AvaloniaList<Option> options = new();
             
@@ -29,7 +33,7 @@ namespace WDE.Common.Avalonia.Controls
         private Dictionary<long, SelectOption>? flags;
         
         public static readonly DirectProperty<FlagComboBox, Dictionary<long, SelectOption>?> FlagsProperty = AvaloniaProperty.RegisterDirect<FlagComboBox, Dictionary<long, SelectOption>?>("Flags", o => o.Flags, (o, v) => o.Flags = v);
-        Type IStyleable.StyleKey => typeof(CompletionComboBox);
+        protected override Type StyleKeyOverride => typeof(CompletionComboBox);
 
         public long SelectedValue
         {
@@ -55,10 +59,12 @@ namespace WDE.Common.Avalonia.Controls
                     box.options.Add(new Option(box, pair.Key, pair.Value.Name, pair.Value.Description));
 
                 box.Items = box.options;
-                box.AsyncPopulator = async (str, _) =>
+                box.AsyncPopulator = async (items, str, _) =>
                 {
                     if (string.IsNullOrEmpty(str))
                         return box.options;
+                    if (long.TryParse(str, out var longValue))
+                        return box.options.Where(o => (o.OptionValue & longValue) != 0);
                     return Process.ExtractSorted(str, box.options.Select(s => s.TextWithNumber), cutoff: 51)
                         .Select(s => box.options[s.Index]);
                 };
@@ -106,7 +112,8 @@ namespace WDE.Common.Avalonia.Controls
                         Padding = new Thickness(7,5,7,5),
                         VerticalAlignment = VerticalAlignment.Stretch,
                         HorizontalAlignment = HorizontalAlignment.Stretch,
-                        [~ToggleButton.IsCheckedProperty] = new Binding("IsChecked", BindingMode.TwoWay)
+                        [~ToggleButton.IsCheckedProperty] = new Binding("IsChecked", BindingMode.TwoWay),
+                        [!ToolTip.TipProperty] = new Binding("OptionValue") {Converter = IntToHexStringConverter.Instance}
                     };
 
                     return checkBox;
@@ -146,10 +153,10 @@ namespace WDE.Common.Avalonia.Controls
                 {
                     if (completionBoxReference.TryGetTarget(out var completionBox))
                     {
-                        if (OptionValue == 0 && completionBox.SelectedValue == 0)
-                            return true;
+                        if (OptionValue == 0)
+                            return completionBox.SelectedValue == 0;
                         
-                        return (completionBox.SelectedValue & OptionValue) > 0;
+                        return (completionBox.SelectedValue & OptionValue) == OptionValue;
                     }
 
                     return false;
@@ -191,7 +198,7 @@ namespace WDE.Common.Avalonia.Controls
                     {
                         if (disposable != null)
                             throw new Exception();
-                        disposable = completionBox.GetObservable(SelectedValueProperty).SubscribeAction(_ =>
+                        disposable = completionBox.GetObservable(SelectedValueProperty).Skip(1).SubscribeAction(_ =>
                         {
                             OnPropertyChanged(nameof(IsChecked));
                         });
@@ -216,6 +223,38 @@ namespace WDE.Common.Avalonia.Controls
             {
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
             }
+        }
+    }
+    
+    public abstract class BasePhantomFlagsComboBox : PhantomControlBase<FlagComboBox>
+    {
+        protected void Spawn(Visual parent, Rect position, string? initialText, Dictionary<long, SelectOption>? flags, long value)
+        {
+            var flagsComboBox = new FlagComboBox();
+            flagsComboBox.Flags = flags;
+            flagsComboBox.SelectedValue = value;
+            flagsComboBox.HideButton = true;
+            flagsComboBox.IsLightDismissEnabled = false; // we are handling it ourselves, without doing .Handled = true so that as soon as user press outside of popup, the click is treated as actual click
+            flagsComboBox.Closed += CompletionComboBoxOnClosed;
+
+            if (!AttachAsAdorner(parent, position, flagsComboBox, true))
+                return;
+
+            DispatcherTimer.RunOnce(() =>
+            {
+                flagsComboBox.IsDropDownOpen = true;
+                flagsComboBox.SearchText = initialText ?? "";
+            }, TimeSpan.FromMilliseconds(1));
+        }
+
+        private void CompletionComboBoxOnClosed()
+        {
+            Despawn(true);
+        }
+
+        protected override void Cleanup(FlagComboBox element)
+        {
+            element.Closed -= CompletionComboBoxOnClosed;
         }
     }
 }

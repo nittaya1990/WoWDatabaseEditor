@@ -1,17 +1,23 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Metadata;
+using Avalonia.Threading;
+using WDE.Common.Avalonia.Services;
+using WDE.Common.Avalonia.Utils;
+using WDE.Common.Utils;
 
 namespace WDE.Common.Avalonia.Controls
 {
     public class FormattedTextBlock : Control
     {
-        private static FormattedTextDrawer? drawer = null;
+        private static FormattedTextDrawer drawer = null!;
         private static int STYLE_DEFAULT = 0;
         private static int STYLE_PARAMETER = 1;
         private static int STYLE_SOURCE = 2;
@@ -25,42 +31,48 @@ namespace WDE.Common.Avalonia.Controls
             AffectsMeasure<FormattedTextBlock>(TextProperty);
         }
 
-        public FormattedTextBlock()
+        private static void EnsureDrawerInitialized()
         {
+            // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
+            if (drawer != null)
+                return;
+            
             // this is a hack optimization
             // this probably will be removed
             // when avalonia has support for "RUN"
-            if (drawer == null)
+            drawer = new FormattedTextDrawer();
+            if (!Application.Current!.Styles.TryGetResource("MainFontSans", null, out var mainFontSans)
+                || mainFontSans is not FontFamily mainFontSansFamily)
+                return;
+            
+            if (Application.Current.Styles.TryGetResource("SmartScripts.Event.Foreground", null, out var eventColor)
+                && eventColor is IBrush eventBrush)
             {
-                drawer = new FormattedTextDrawer();
-                if (!Application.Current.Styles.TryGetResource("MainFontSans", out var mainFontSans)
-                    || mainFontSans is not FontFamily mainFontSansFamily)
-                    return;
-                
-                if (Application.Current.Styles.TryGetResource("SmartScripts.Event.Foreground", out var eventColor)
-                    && eventColor is IBrush eventBrush)
-                {
-                    drawer.AddStyle(STYLE_DEFAULT, new Typeface(mainFontSansFamily), 12, eventBrush, 0);
-                }
-                
-                if (Application.Current.Styles.TryGetResource("SmartScripts.Event.Selected.Foreground", out var eventSelectedColor)
-                    && eventSelectedColor is IBrush eventSelectedBrush)
-                {
-                    drawer.AddStyle(STYLE_DEFAULT_SELECTED, new Typeface(mainFontSansFamily), 12, eventSelectedBrush, 0);
-                }
-                
-                if (Application.Current.Styles.TryGetResource("SmartScripts.Parameter.Foreground", out var parameterColor)
-                    && parameterColor is IBrush parameterBrush)
-                {
-                    drawer.AddStyle(STYLE_PARAMETER, new Typeface("Consolas,Menlo,Courier,Courier New", FontStyle.Normal, FontWeight.Bold), 12, parameterBrush, 1);
-                }
-                
-                if (Application.Current.Styles.TryGetResource("SmartScripts.Source.Foreground", out var sourceColor)
-                    && sourceColor is IBrush sourceBrush)
-                {
-                    drawer.AddStyle(STYLE_SOURCE, new Typeface("Consolas,Menlo,Courier,Courier New", FontStyle.Normal, FontWeight.Bold), 12, sourceBrush, 1);
-                }
+                drawer.AddStyle(STYLE_DEFAULT, new Typeface(mainFontSansFamily), 12, eventBrush);
             }
+            
+            if (Application.Current.Styles.TryGetResource("SmartScripts.Event.Selected.Foreground", null, out var eventSelectedColor)
+                && eventSelectedColor is IBrush eventSelectedBrush)
+            {
+                drawer.AddStyle(STYLE_DEFAULT_SELECTED, new Typeface(mainFontSansFamily), 12, eventSelectedBrush);
+            }
+            
+            if (Application.Current.Styles.TryGetResource("SmartScripts.Parameter.Foreground", null, out var parameterColor)
+                && parameterColor is IBrush parameterBrush)
+            {
+                drawer.AddStyle(STYLE_PARAMETER, new Typeface("Consolas,Menlo,Courier,Courier New", FontStyle.Normal, FontWeight.Bold), 12, parameterBrush);
+            }
+            
+            if (Application.Current.Styles.TryGetResource("SmartScripts.Source.Foreground", null, out var sourceColor)
+                && sourceColor is IBrush sourceBrush)
+            {
+                drawer.AddStyle(STYLE_SOURCE, new Typeface("Consolas,Menlo,Courier,Courier New", FontStyle.Normal, FontWeight.Bold), 12, sourceBrush);
+            }
+        }
+
+        public FormattedTextBlock()
+        {
+            EnsureDrawerInitialized();
         }
         
         private int overPartIndex = -1;
@@ -73,9 +85,9 @@ namespace WDE.Common.Avalonia.Controls
             InvalidateVisual();
         }
 
-        protected override void OnPointerLeave(PointerEventArgs e)
+        protected override void OnPointerExited(PointerEventArgs e)
         {
-            base.OnPointerLeave(e);
+            base.OnPointerExited(e);
             currentPos = new Point(-100, -100);
             InvalidateVisual();
         }
@@ -88,7 +100,38 @@ namespace WDE.Common.Avalonia.Controls
             Slash
         }
 
-        private void ParseText(string text, Action<string, int, bool, bool, int> action)
+        private static bool TryParseTag(ReadOnlySpan<char> text, out ReadOnlySpan<char> tag, out int? param)
+        {
+            tag = default;
+            param = default;
+
+            if (text.Length == 0)
+                return false;
+            
+            if (text[0] == '[')
+                text = text.Slice(1);
+            if (text[^1] == ']')
+                text = text.Slice(0, text.Length - 1);
+            
+            var indexOfSeparator = text.IndexOf('=');
+            if (indexOfSeparator == -1)
+            {
+                tag = text;
+                return true;
+            }
+            
+            tag = text.Slice(0, indexOfSeparator);
+            var paramText = text.Slice(indexOfSeparator + 1);
+            if (int.TryParse(paramText, out var p))
+            {
+                param = p;
+                return true;
+            }
+
+            return true;
+        }
+
+        private static void ParseText(Control? owner, string? text, Action<string, int, bool, bool, int, IImage?> action)
         {
             if (text == null)
                 return;
@@ -96,6 +139,7 @@ namespace WDE.Common.Avalonia.Controls
             int partIndex = 0;
             bool parameter = false;
             bool source = false;
+            IImage? drawBitmap = null;
             int contextId = -1;
 
             State state = State.Text;
@@ -135,13 +179,38 @@ namespace WDE.Common.Avalonia.Controls
                 {
                     partIndex++;
 
-                    if (text[startIndex] == 'p')
-                        parameter = true;
-                    if (text[startIndex] == 's')
-                        source = true;
-
-                    if (text[startIndex + 1] == '=' && char.IsDigit(text[startIndex + 2]))
-                        contextId = text[startIndex + 2] - '0';
+                    if (TryParseTag(text.AsSpan(startIndex, index - startIndex), out var tag, out var param))
+                    {
+                        if (tag.Equals("p", StringComparison.Ordinal))
+                            parameter = true;
+                        else if (tag.Equals("s", StringComparison.Ordinal))
+                            source = true;
+                        else if (tag.Equals("spell", StringComparison.Ordinal) &&
+                                 param.HasValue)
+                        {
+                            var iconsDb = ViewBind.ResolveViewModel<ISpellIconDatabase>();
+                            var spellId = (uint)param.Value;
+                            if (!iconsDb.TryGetCached(spellId, out drawBitmap))
+                            {
+                                if (owner != null)
+                                {
+                                    async Task LoadIcon()
+                                    {
+                                        await ViewBind.ResolveViewModel<ISpellIconDatabase>().GetIcon(spellId);
+                                        Dispatcher.UIThread.Post(() =>
+                                        {
+                                            owner.InvalidateVisual();
+                                            owner.InvalidateMeasure();
+                                        });
+                                    }
+                                    LoadIcon().ListenErrors();   
+                                }
+                            }
+                        }
+                        
+                        if (param.HasValue)
+                            contextId = param.Value;
+                    }
 
                     startIndex = index + 1;
                     state = State.Text;
@@ -165,14 +234,23 @@ namespace WDE.Common.Avalonia.Controls
                     if (index < text.Length - 1)
                         startIndex = index + 1;
                 }
+                else if ((s == '\n' || s == '\r') && state == State.Text && toFulsh == null)
+                {
+                    toFulsh = text.AsSpan(startIndex, index - startIndex);
+                    if (index < text.Length - 1)
+                        startIndex = index + 1;
+                }
 
                 if (state == State.Text && index == text.Length - 1)
-                    toFulsh = text.AsSpan(startIndex);
+                    toFulsh = text.AsSpan(startIndex).TrimEnd();
 
                 if (toFulsh == null)
                     continue;
 
-                action(toFulsh.ToString(), partIndex, source, parameter, contextId);
+                action(toFulsh.ToString(), partIndex, source, parameter, contextId, drawBitmap);
+                if (s == '\n' && state == State.Text)
+                    action("\n", partIndex, source, parameter, contextId, null);
+                drawBitmap = null;
             }
         }
 
@@ -192,9 +270,6 @@ namespace WDE.Common.Avalonia.Controls
                 context.FillRectangle(Background, new Rect(Bounds.Size));
             }
 
-            Stopwatch sw = new();
-            Stopwatch sw2 = new();
-            sw.Start();
             int newOverPartIndex = -1;
             double x = Padding.Left;
             double y = Padding.Top;
@@ -202,15 +277,19 @@ namespace WDE.Common.Avalonia.Controls
             bool overLink = false;
             overContextId = -1;
 
-            ParseText(Text, (text, partIndex, source, parameter, contextId) =>
+            ParseText(this, Text, (text, partIndex, source, parameter, contextId, bitmap) =>
             {
+                if (bitmap != null)
+                {
+                    context.DrawImage(bitmap, new Rect(x, y, 16, 16));
+                    x += 16;
+                }
+                
                 var styleId = parameter ? STYLE_PARAMETER : (source ? STYLE_SOURCE : (IsSelected ? STYLE_DEFAULT_SELECTED : STYLE_DEFAULT));
    
                 Rect bounds;
-                sw2.Start();
-                (wasWrapped, bounds) = drawer!.Draw(context, text, styleId, !wasWrapped, ref x, ref y, Padding.Left, Bounds.Width + 5);
-                sw2.Stop();
-
+                (wasWrapped, bounds) = drawer!.Draw(context, text, styleId, !wasWrapped, ref x, ref y, Padding.Left, Bounds.Width - Padding.Right);
+                
                 if (overPartIndex == partIndex && (source || parameter) && IsPointerOver)
                 {
                     overLink = true;
@@ -218,7 +297,7 @@ namespace WDE.Common.Avalonia.Controls
                     drawer.DrawUnderline(context, styleId, bounds);
                 }
 
-                if (bounds.Contains(currentPos))
+                if (bounds.Contains(currentPos) && contextId != -1)
                     newOverPartIndex = partIndex;
             });
 
@@ -232,21 +311,34 @@ namespace WDE.Common.Avalonia.Controls
             wasOverLink = overLink;
         }
 
-        protected override Size MeasureOverride(Size availableSize)
+        public static Size MeasureText(float maxWidth, string text, Point testPoint, out int? overPartIndex)
         {
+            EnsureDrawerInitialized();
             Rect bounds;
             bool wasWrapped = true;
             bool everWrapped = false;
             double x = 0, y = 0;
-            ParseText(Text, (text, partIndex, source, parameter, contextId) =>
+            int? hoverPartIndex = null;
+            ParseText(null, text, (t, partIndex, source, parameter, contextId, bitmap) =>
             {
+                if (bitmap != null)
+                    x += 16;
                 var styleId = parameter ? STYLE_PARAMETER : (source ? STYLE_SOURCE : STYLE_DEFAULT);
-                (wasWrapped, bounds) = drawer!.Measure(text, styleId, !wasWrapped, ref x, ref y, availableSize.Width);
-                if (bounds.Contains(currentPos))
-                    overPartIndex = partIndex;
+                (wasWrapped, bounds) = drawer.Measure(t, styleId, !wasWrapped, ref x, ref y, maxWidth);
+                if (bounds.Contains(testPoint) && contextId != -1)
+                    hoverPartIndex = partIndex;
                 everWrapped |= wasWrapped;
             });
-            var size = new Size(everWrapped ? availableSize.Width : x, y + drawer!.LineHeight);
+            overPartIndex = hoverPartIndex;
+            var size = new Size(everWrapped ? maxWidth : x, y + drawer.LineHeight);
+            return size;
+        }
+
+        protected override Size MeasureOverride(Size availableSize)
+        {
+            var size = MeasureText((float)(availableSize.Width - Padding.Left - Padding.Right), Text, currentPos, out var hoverPartIndex);
+            if (hoverPartIndex.HasValue)
+                overPartIndex = hoverPartIndex.Value;
             return size.Inflate(Padding);
         }
 
@@ -285,7 +377,7 @@ namespace WDE.Common.Avalonia.Controls
         }
         
         public static readonly StyledProperty<IBrush?> BackgroundProperty =
-            Border.BackgroundProperty.AddOwner<TextBlock>();
+            Border.BackgroundProperty.AddOwner<FormattedTextBlock>();
 
         /// <summary>
         /// Gets or sets a brush used to paint the control's background.
@@ -300,7 +392,7 @@ namespace WDE.Common.Avalonia.Controls
         /// Defines the <see cref="Padding"/> property.
         /// </summary>
         public static readonly StyledProperty<Thickness> PaddingProperty =
-            Decorator.PaddingProperty.AddOwner<TextBlock>();
+            Decorator.PaddingProperty.AddOwner<FormattedTextBlock>();
 
         private IList<object>? _ContextArray;
         public static readonly DirectProperty<FormattedTextBlock, IList<object>?> ContextArrayProperty = AvaloniaProperty.RegisterDirect<FormattedTextBlock, IList<object>?>("ContextArray", o => o.ContextArray, (o, v) => o.ContextArray = v);

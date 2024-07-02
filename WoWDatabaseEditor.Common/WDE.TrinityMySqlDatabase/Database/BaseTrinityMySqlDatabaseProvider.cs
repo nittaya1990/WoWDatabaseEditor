@@ -1,13 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Data;
 using System.Linq;
 using System.Threading.Tasks;
+using LinqKit;
 using LinqToDB;
 using LinqToDB.Data;
 using WDE.Common.CoreVersion;
 using WDE.Common.Database;
-using WDE.MySqlDatabaseCommon.Database;
+using WDE.Common.DBC;
 using WDE.MySqlDatabaseCommon.Database.World;
 using WDE.MySqlDatabaseCommon.Providers;
 using WDE.MySqlDatabaseCommon.Services;
@@ -18,8 +18,9 @@ namespace WDE.TrinityMySqlDatabase.Database
     public abstract class BaseTrinityMySqlDatabaseProvider<T> : IAsyncDatabaseProvider, IAuthDatabaseProvider where T : BaseTrinityDatabase, new()
     {
         public bool IsConnected => true;
-        public abstract ICreatureTemplate? GetCreatureTemplate(uint entry);
-        public abstract IEnumerable<ICreatureTemplate> GetCreatureTemplates();
+        public abstract Task<ICreatureTemplate?> GetCreatureTemplate(uint entry);
+        public abstract IReadOnlyList<ICreatureTemplate> GetCreatureTemplates();
+        public abstract Task<IReadOnlyList<ICreatureTemplateDifficulty>> GetCreatureTemplateDifficulties(uint entry);
 
         private readonly ICurrentCoreVersion currentCoreVersion;
 
@@ -36,7 +37,7 @@ namespace WDE.TrinityMySqlDatabase.Database
 
         protected T Database() => new();
         
-        public async Task<List<ICreatureText>> GetCreatureTextsByEntry(uint entry)
+        public async Task<IReadOnlyList<ICreatureText>> GetCreatureTextsByEntryAsync(uint entry)
         {
             await using var model = Database();
             return await model.CreatureTexts.Where(t => t.CreatureId == entry)
@@ -45,20 +46,46 @@ namespace WDE.TrinityMySqlDatabase.Database
                 .ToListAsync<ICreatureText>();
         }
 
-        public async Task<IList<ISmartScriptLine>> GetLinesCallingSmartTimedActionList(int timedActionList)
+        public IReadOnlyList<ICreatureText>? GetCreatureTextsByEntry(uint entry)
+        {
+            using var model = Database();
+            return model.CreatureTexts.Where(t => t.CreatureId == entry)
+                .OrderBy(t => t.GroupId)
+                .ThenBy(t => t.Id)
+                .ToList<ICreatureText>();
+        }
+        
+        public async Task<IReadOnlyList<ISmartScriptLine>> GetLinesCallingSmartTimedActionList(int timedActionList)
         {
             await using var model = Database();
-            return await model.SmartScript.Where(line =>
+            return await model.BaseSmartScript.Where(line =>
                     (line.ActionType == 80 && line.ActionParam1 == timedActionList) ||
                     (line.ActionType == 88 && timedActionList >= line.ActionParam1 && timedActionList <= line.ActionParam2) ||
                    (line.ActionType == 87 && (line.ActionParam1 == timedActionList || line.ActionParam2 == timedActionList || line.ActionParam3 == timedActionList || line.ActionParam4 == timedActionList || line.ActionParam5 == timedActionList || line.ActionParam6 == timedActionList)))
                 .ToListAsync<ISmartScriptLine>();
         }
 
-        public IEnumerable<ISmartScriptLine> GetScriptFor(int entryOrGuid, SmartScriptType type)
+        public async Task<IReadOnlyList<int>> GetSmartScriptEntriesByType(SmartScriptType scriptType)
         {
-            using var model = Database();
-            return model.SmartScript.Where(line => line.EntryOrGuid == entryOrGuid && line.ScriptSourceType == (int) type).ToList();
+            var type = (int)scriptType;
+            await using var model = Database();
+            return await model.BaseSmartScript
+                .Where(t => t.ScriptSourceType == type)
+                .GroupBy(t => t.EntryOrGuid, t => t.EntryOrGuid)
+                .Select(t => t.Key)
+                .ToListAsync();
+        }
+
+        public abstract IEnumerable<ISmartScriptLine> GetScriptFor(uint entry, int entryOrGuid, SmartScriptType type);
+
+        public abstract Task<IReadOnlyList<ISmartScriptLine>> GetScriptForAsync(uint entry, int entryOrGuid, SmartScriptType type);
+
+        public abstract Task<IReadOnlyList<ISmartScriptLine>> FindSmartScriptLinesBy(IEnumerable<(IDatabaseProvider.SmartLinePropertyType what, int whatValue, int parameterIndex, long valueToSearch)> conditions);
+        
+        public async Task<IQuestRequestItem?> GetQuestRequestItem(uint entry)
+        {
+            await using var model = Database();
+            return await model.QuestRequestItems.FirstOrDefaultAsync<IQuestRequestItem>(quest => quest.Entry == entry);
         }
 
         public IEnumerable<IGameEvent> GetGameEvents()
@@ -67,7 +94,7 @@ namespace WDE.TrinityMySqlDatabase.Database
             return (from t in model.GameEvents orderby t.Entry select t).ToList<IGameEvent>();
         }
         
-        public async Task<List<IGameEvent>> GetGameEventsAsync()
+        public async Task<IReadOnlyList<IGameEvent>> GetGameEventsAsync()
         {
             await using var model = Database();
             return await (from t in model.GameEvents orderby t.Entry select t).ToListAsync<IGameEvent>();
@@ -75,19 +102,20 @@ namespace WDE.TrinityMySqlDatabase.Database
         
         public IEnumerable<IConversationTemplate> GetConversationTemplates()
         {
-            if (currentCoreVersion.Current.DatabaseFeatures.UnsupportedTables.Contains(typeof(IConversationTemplate)))
+            if (!Supports<IConversationTemplate>())
                 return new List<IConversationTemplate>();
             
             using var model = Database();
             return (from t in model.ConversationTemplate orderby t.Id select t).ToList<IConversationTemplate>();
         }
 
-        public abstract Task<List<ICreatureTemplate>> GetCreatureTemplatesAsync();
-        public abstract Task<List<ICreature>> GetCreaturesAsync();
+        public abstract void ConnectOrThrow();
+        public abstract Task<IReadOnlyList<ICreatureTemplate>> GetCreatureTemplatesAsync();
+        public abstract Task<IReadOnlyList<ICreature>> GetCreaturesAsync();
 
-        public async Task<List<IConversationTemplate>> GetConversationTemplatesAsync()
+        public async Task<IReadOnlyList<IConversationTemplate>> GetConversationTemplatesAsync()
         {
-            if (currentCoreVersion.Current.DatabaseFeatures.UnsupportedTables.Contains(typeof(IConversationTemplate)))
+            if (!Supports<IConversationTemplate>())
                 return new List<IConversationTemplate>();
             
             await using var model = Database();
@@ -99,7 +127,7 @@ namespace WDE.TrinityMySqlDatabase.Database
             using var model = Database();
 
             List<MySqlGossipMenuLine> gossips;
-            if (currentCoreVersion.Current.DatabaseFeatures.UnsupportedTables.Contains(typeof(INpcText)))
+            if (!Supports<INpcText>())
             {
                 gossips = model.GossipMenus.ToList();
             }
@@ -116,12 +144,12 @@ namespace WDE.TrinityMySqlDatabase.Database
                 .ToList<IGossipMenu>();
         }
         
-        public async Task<List<IGossipMenu>> GetGossipMenusAsync()
+        public async Task<IReadOnlyList<IGossipMenu>> GetGossipMenusAsync()
         {
             await using var model = Database();
 
             List<MySqlGossipMenuLine> gossips;
-            if (currentCoreVersion.Current.DatabaseFeatures.UnsupportedTables.Contains(typeof(INpcText)))
+            if (!Supports<INpcText>())
             {
                 gossips = await model.GossipMenus.ToListAsync();
             }
@@ -138,305 +166,226 @@ namespace WDE.TrinityMySqlDatabase.Database
                 .ToList<IGossipMenu>();
         }
 
-        public abstract Task<List<IGossipMenuOption>> GetGossipMenuOptionsAsync(uint menuId);
-
-        public INpcText? GetNpcText(uint entry)
+        public async Task<IGossipMenu?> GetGossipMenuAsync(uint menuId)
         {
-            if (currentCoreVersion.Current.DatabaseFeatures.UnsupportedTables.Contains(typeof(INpcText)))
+            await using var model = Database();
+
+            List<MySqlGossipMenuLine> gossips;
+            if (!Supports<INpcText>())
+            {
+                gossips = await model.GossipMenus.Where(g => g.MenuId == menuId).ToListAsync();
+            }
+            else
+            {
+                gossips = await (from gossip in model.GossipMenus
+                    where gossip.MenuId == menuId
+                    join p in model.NpcTexts on gossip.TextId equals p.Id into lj
+                    from lp in lj.DefaultIfEmpty()
+                    select gossip.SetText(lp)).ToListAsync();   
+            }
+
+            if (gossips.Count == 0)
                 return null;
-            
-            using var model = Database();
-            return model.NpcTexts.FirstOrDefault(text => text.Id == entry);
+
+            return new MySqlGossipMenu(menuId, gossips.Where(t => t.Text != null).Select(t => t.Text!).ToList());
+        }
+
+        public abstract Task<IReadOnlyList<IGossipMenuOption>> GetGossipMenuOptionsAsync(uint menuId);
+        public abstract List<IGossipMenuOption> GetGossipMenuOptions(uint menuId);
+
+        public async Task<INpcText?> GetNpcText(uint entry)
+        {
+            if (!Supports<INpcText>())
+                return null;
+
+            await using var model = Database();
+            return await model.NpcTexts.FirstOrDefaultAsync(text => text.Id == entry);
         }
 
         public IEnumerable<INpcText> GetNpcTexts()
         {
-            if (currentCoreVersion.Current.DatabaseFeatures.UnsupportedTables.Contains(typeof(INpcText)))
+            if (!Supports<INpcText>())
                 return new List<INpcText>();
             
             using var model = Database();
             return (from t in model.NpcTexts orderby t.Id select t).ToList<INpcText>();
         }
 
-        public async Task<List<INpcText>> GetNpcTextsAsync()
+        public async Task<IReadOnlyList<INpcText>> GetNpcTextsAsync()
         {
-            if (currentCoreVersion.Current.DatabaseFeatures.UnsupportedTables.Contains(typeof(INpcText)))
+            if (!Supports<INpcText>())
                 return new List<INpcText>();
             
             await using var model = Database();
             return await (from t in model.NpcTexts orderby t.Id select t).ToListAsync<INpcText>();
         }
+        
+        public async Task<IAreaTriggerScript?> GetAreaTriggerScript(int entry)
+        {
+            await using var model = Database();
+            return await model.AreaTriggerScript.FirstOrDefaultAsync(script => script.Entry == entry);
+        }
+
+        public virtual async Task<IAreaTriggerTemplate?> GetAreaTriggerTemplate(int entry)
+        {
+            return null;
+        }
 
         public IEnumerable<IAreaTriggerTemplate> GetAreaTriggerTemplates()
         {
-            if (currentCoreVersion.Current.DatabaseFeatures.UnsupportedTables.Contains(typeof(IAreaTriggerTemplate)))
+            if (!Supports<IAreaTriggerTemplate>())
                 return new List<IAreaTriggerTemplate>();
 
             using var model = Database();
             return (from t in model.AreaTriggerTemplate orderby t.Id select t).ToList<IAreaTriggerTemplate>();
         }
         
-        public async Task<List<ICreatureClassLevelStat>> GetCreatureClassLevelStatsAsync()
+        public async Task<IReadOnlyList<ICreatureClassLevelStat>> GetCreatureClassLevelStatsAsync()
         {
-            if (currentCoreVersion.Current.DatabaseFeatures.UnsupportedTables.Contains(typeof(ICreatureClassLevelStat)))
+            if (!Supports<ICreatureClassLevelStat>())
                 return new List<ICreatureClassLevelStat>();
 
             await using var model = Database();
             return await (from t in model.CreatureClassLevelStats select t).ToListAsync<ICreatureClassLevelStat>();
         }
 
-        public abstract Task<List<IBroadcastText>> GetBroadcastTextsAsync();
-
+        public abstract Task<IReadOnlyList<IBroadcastText>> GetBroadcastTextsAsync();
+        
         public IEnumerable<ICreatureClassLevelStat> GetCreatureClassLevelStats()
         {
-            if (currentCoreVersion.Current.DatabaseFeatures.UnsupportedTables.Contains(typeof(ICreatureClassLevelStat)))
+            if (!Supports<ICreatureClassLevelStat>())
                 return Enumerable.Empty<ICreatureClassLevelStat>();
 
             using var model = Database();
             return (from t in model.CreatureClassLevelStats select t).ToList<ICreatureClassLevelStat>();
         }
 
-        public async Task<List<IAreaTriggerTemplate>> GetAreaTriggerTemplatesAsync()
+        public async Task<IReadOnlyList<IAreaTriggerTemplate>> GetAreaTriggerTemplatesAsync()
         {
-            if (currentCoreVersion.Current.DatabaseFeatures.UnsupportedTables.Contains(typeof(IAreaTriggerTemplate)))
+            if (!Supports<IAreaTriggerTemplate>())
                 return new List<IAreaTriggerTemplate>();
 
             await using var model = Database();
             return await (from t in model.AreaTriggerTemplate orderby t.Id select t).ToListAsync<IAreaTriggerTemplate>();
         }
         
-        public IEnumerable<IGameObjectTemplate> GetGameObjectTemplates()
+        public IReadOnlyList<IGameObjectTemplate> GetGameObjectTemplates()
         {
             using var model = Database();
             return (from t in model.GameObjectTemplate orderby t.Entry select t).ToList<IGameObjectTemplate>();
         }
         
-        public async Task<List<IGameObjectTemplate>> GetGameObjectTemplatesAsync()
+        public async Task<IReadOnlyList<IGameObjectTemplate>> GetGameObjectTemplatesAsync()
         {
             await using var model = Database();
             return await (from t in model.GameObjectTemplate orderby t.Entry select t).ToListAsync<IGameObjectTemplate>();
         }
 
-        public abstract Task<List<IGameObject>> GetGameObjectsAsync();
+        public abstract Task<IReadOnlyList<IGameObject>> GetGameObjectsAsync();
+        public abstract Task<IReadOnlyList<ICreature>> GetCreaturesAsync(IEnumerable<SpawnKey> guids);
+        public abstract Task<IReadOnlyList<IGameObject>> GetGameObjectsAsync(IEnumerable<SpawnKey> guids);
 
-        private IQueryable<MySqlQuestTemplate> GetQuestsQuery(BaseTrinityDatabase model)
-        {
-            return (from t in model.QuestTemplate
-                join addon in model.QuestTemplateAddon on t.Entry equals addon.Entry into adn
-                from subaddon in adn.DefaultIfEmpty()
-                orderby t.Entry
-                select t.SetAddon(subaddon));
-        }
+        public abstract IReadOnlyList<IQuestTemplate> GetQuestTemplates();
         
-        public IEnumerable<IQuestTemplate> GetQuestTemplates()
-        {
-            using var model = Database();
+        public virtual async Task<IReadOnlyList<IQuestObjective>> GetQuestObjectives(uint questId) => new List<IQuestObjective>();
 
-            return GetQuestsQuery(model).ToList<IQuestTemplate>();
-        }
+        public virtual async Task<IQuestObjective?> GetQuestObjective(uint questId, int storageIndex) => null;
+        
+        public virtual async Task<IQuestObjective?> GetQuestObjectiveById(uint objectiveId) => null;
+        
+        public abstract Task<IReadOnlyList<IQuestTemplate>> GetQuestTemplatesAsync();
 
-        public async Task<List<IQuestTemplate>> GetQuestTemplatesAsync()
-        {
-            await using var model = Database();
-            return await GetQuestsQuery(model).ToListAsync<IQuestTemplate>();
-        }
+        public abstract Task<IReadOnlyList<IQuestTemplate>> GetQuestTemplatesBySortIdAsync(int questSortId);
 
-        public IGameObjectTemplate? GetGameObjectTemplate(uint entry)
+        public abstract Task<IQuestTemplate?> GetQuestTemplate(uint entry);
+
+        public async Task<IGameObjectTemplate?> GetGameObjectTemplate(uint entry)
         {
             using var model = Database();
             return model.GameObjectTemplate.FirstOrDefault(g => g.Entry == entry);
         }
 
-        public IQuestTemplate? GetQuestTemplate(uint entry)
-        {
-            using var model = Database();
-            MySqlQuestTemplateAddon? addon = model.QuestTemplateAddon.FirstOrDefault(addon => addon.Entry == entry);
-            return model.QuestTemplate.FirstOrDefault(q => q.Entry == entry)?.SetAddon(addon);
-        }
-
-        public async Task InstallScriptFor(int entryOrGuid, SmartScriptType type, IList<ISmartScriptLine> script)
-        {
-            using var writeLock = await DatabaseLock.WriteLock();
-            await using var model = Database();
-
-            await model.BeginTransactionAsync(IsolationLevel.ReadCommitted);
-            
-            foreach (var pair in script.Select(l => (l.ScriptSourceType, l.EntryOrGuid))
-                .Concat(new (int ScriptSourceType, int EntryOrGuid)[]{((int)type, entryOrGuid)})
-                .Distinct())
-                await model.SmartScript.Where(x => x.EntryOrGuid == pair.EntryOrGuid && x.ScriptSourceType == pair.ScriptSourceType).DeleteAsync();
-
-            switch (type)
-            {
-                case SmartScriptType.Creature:
-                {
-                    uint entry = 0;
-                    if (entryOrGuid < 0)
-                    {
-                        var template = await GetCreatureByGuid(model, (uint)-entryOrGuid);
-                        if (template == null)
-                            throw new Exception(
-                                $"Trying to install creature script for guid {-entryOrGuid}, but this guid doesn't exist in creature table, so entry cannot be determined.");
-                        entry = template.Entry;
-                    }
-                    else
-                        entry = (uint)entryOrGuid;
-
-                    await SetCreatureTemplateAI(model, entry, currentCoreVersion.Current.SmartScriptFeatures.CreatureSmartAiName, "");
-                    break;
-                }
-                case SmartScriptType.GameObject:
-                {
-                    uint entry = 0;
-                    if (entryOrGuid < 0)
-                    {
-                        var template = await GetGameObjectByGuidAsync(model, (uint)-entryOrGuid);
-                        if (template == null)
-                            throw new Exception(
-                                $"Trying to install gameobject script for guid {-entryOrGuid}, but this guid doesn't exist in gameobject table, so entry cannot be determined.");
-                        entry = template.Entry;
-                    }
-                    else
-                        entry = (uint)entryOrGuid;
-                    await model.GameObjectTemplate.Where(p => p.Entry == entry)
-                        .Set(p => p.AIName, currentCoreVersion.Current.SmartScriptFeatures.GameObjectSmartAiName)
-                        .Set(p => p.ScriptName, "")
-                        .UpdateAsync();
-                    break;
-                }
-                case SmartScriptType.Quest:
-                    var addonExists = await model.QuestTemplateAddon.Where(p => p.Entry == (uint)entryOrGuid).AnyAsync();
-                    if (!addonExists)
-                        await model.QuestTemplateAddon.InsertAsync(() => new MySqlQuestTemplateAddon()
-                            {Entry = (uint)entryOrGuid});
-                    await model.QuestTemplateAddonWithScriptName
-                        .Where(p => p.Entry == (uint) entryOrGuid)
-                        .Set(p => p.ScriptName, "SmartQuest")
-                        .UpdateAsync();
-                    break;
-                case SmartScriptType.AreaTrigger:
-                    await model.AreaTriggerScript.Where(p => p.Id == entryOrGuid).DeleteAsync();
-                    await model.AreaTriggerScript.InsertAsync(() => new MySqlAreaTriggerScript(){Id = entryOrGuid, ScriptName = "SmartTrigger"});
-                    break;
-                case SmartScriptType.AreaTriggerEntity:
-                    await model.AreaTriggerTemplate.Where(p => p.Id == (uint) entryOrGuid && p.IsServerSide == false)
-                        .Set(p => p.ScriptName, "SmartAreaTriggerAI")
-                        .UpdateAsync();
-                    break;
-                case SmartScriptType.AreaTriggerEntityServerSide:
-                    await model.AreaTriggerTemplate.Where(p => p.Id == (uint) entryOrGuid && p.IsServerSide == true)
-                        .Set(p => p.ScriptName, "SmartAreaTriggerAI")
-                        .UpdateAsync();
-                    break;
-            }
-            
-            await model.SmartScript.BulkCopyAsync(script.Select(l => new MySqlSmartScriptLine(l)));
-
-            await model.CommitTransactionAsync();
-        }
-
-        protected abstract Task<ICreature?> GetCreatureByGuid(T model, uint guid);
+        protected abstract Task<ICreature?> GetCreatureByGuidAsync(T model, uint guid);
         protected abstract Task<IGameObject?> GetGameObjectByGuidAsync(T model, uint guid);
         protected abstract Task SetCreatureTemplateAI(T model, uint entry, string ainame, string scriptname);
 
-        public async Task InstallConditions(IEnumerable<IConditionLine> conditionLines,
-            IDatabaseProvider.ConditionKeyMask keyMask,
-            IDatabaseProvider.ConditionKey? manualKey = null)
+        public virtual async Task<IReadOnlyList<IConditionLine>> GetConditionsForAsync(int sourceType, int sourceEntry, int sourceId)
         {
-            using var writeLock = await DatabaseLock.WriteLock();
             await using var model = Database();
 
-            var conditions = conditionLines?.ToList() ?? new List<IConditionLine>();
-            List<(int SourceType, int? SourceGroup, int? SourceEntry, int? SourceId)> keys = conditions.Select(c =>
-                    (c.SourceType, keyMask.HasFlag(IDatabaseProvider.ConditionKeyMask.SourceGroup) ? (int?) c.SourceGroup : null,
-                        keyMask.HasFlag(IDatabaseProvider.ConditionKeyMask.SourceEntry) ? (int?) c.SourceEntry : null,
-                        keyMask.HasFlag(IDatabaseProvider.ConditionKeyMask.SourceId) ? (int?) c.SourceId : null))
-                .Union(manualKey.HasValue
-                    ? new[]
-                    {
-                        (manualKey.Value.SourceType, manualKey.Value.SourceGroup, manualKey.Value.SourceEntry,
-                            manualKey.Value.SourceId)
-                    }
-                    : Array.Empty<(int, int?, int?, int?)>())
-                .Distinct()
-                .ToList();
-
-            await model.BeginTransactionAsync(IsolationLevel.ReadCommitted);
-
-            foreach (var key in keys)
-                await model.Conditions.Where(x => x.SourceType == key.SourceType &&
-                                                  (!key.SourceGroup.HasValue || x.SourceGroup == key.SourceGroup.Value) &&
-                                                  (!key.SourceEntry.HasValue || x.SourceEntry == key.SourceEntry.Value) &&
-                                                  (!key.SourceId.HasValue || x.SourceId == key.SourceId.Value))
-                    .DeleteAsync();
-
-            if (conditions.Count > 0)
-                await model.Conditions.BulkCopyAsync(conditions.Select(line => new MySqlConditionLine(line)));
-
-            await model.CommitTransactionAsync();
-        }
-
-        public IEnumerable<IConditionLine> GetConditionsFor(int sourceType, int sourceEntry, int sourceId)
-        {
-            using var model = Database();
-
-            return model.Conditions.Where(line =>
+            return await model.Conditions.Where(line =>
                     line.SourceType == sourceType && line.SourceEntry == sourceEntry && line.SourceId == sourceId)
-                .ToList();
+                .ToListAsync<IConditionLine>();
         }
 
-        public async Task<IList<IConditionLine>> GetConditionsForAsync(IDatabaseProvider.ConditionKeyMask keyMask, IDatabaseProvider.ConditionKey key)
+        public virtual async Task<IReadOnlyList<IConditionLine>> GetConditionsForAsync(IDatabaseProvider.ConditionKeyMask keyMask, IDatabaseProvider.ConditionKey key)
         {
             await using var model = Database();
 
             return await model.Conditions.Where(x => x.SourceType == key.SourceType &&
-                                                     (!keyMask.HasFlag(IDatabaseProvider.ConditionKeyMask.SourceGroup) || x.SourceGroup == (key.SourceGroup ?? 0)) &&
-                                                     (!keyMask.HasFlag(IDatabaseProvider.ConditionKeyMask.SourceEntry)  || x.SourceEntry == (key.SourceEntry ?? 0)) &&
-                                                     (!keyMask.HasFlag(IDatabaseProvider.ConditionKeyMask.SourceId)  || x.SourceId == (key.SourceId ?? 0)))
+                                                     (!keyMask.HasFlagFast(IDatabaseProvider.ConditionKeyMask.SourceGroup) || x.SourceGroup == (key.SourceGroup ?? 0)) &&
+                                                     (!keyMask.HasFlagFast(IDatabaseProvider.ConditionKeyMask.SourceEntry)  || x.SourceEntry == (key.SourceEntry ?? 0)) &&
+                                                     (!keyMask.HasFlagFast(IDatabaseProvider.ConditionKeyMask.SourceId)  || x.SourceId == (key.SourceId ?? 0)))
                 .ToListAsync<IConditionLine>();
         }
 
-        public async Task<IList<int>> GetSmartScriptEntriesByType(SmartScriptType scriptType)
+        public virtual async Task<IReadOnlyList<IConditionLine>> GetConditionsForAsync(IDatabaseProvider.ConditionKeyMask keyMask, ICollection<IDatabaseProvider.ConditionKey> manualKeys)
         {
-            var type = (int)scriptType;
+            if (manualKeys.Count == 0)
+                return new List<IConditionLine>();
+            
             await using var model = Database();
-            return await model.SmartScript
-                .Where(t => t.ScriptSourceType == type)
-                .GroupBy(t => t.EntryOrGuid, t => t.EntryOrGuid)
-                .Select(t => t.Key)
-                .ToListAsync();
+            var predicate = PredicateBuilder.New<MySqlConditionLine>();
+            foreach (var key in manualKeys)
+            {
+                predicate = predicate.Or(x => x.SourceType == key.SourceType &&
+                                              (!keyMask.HasFlagFast(IDatabaseProvider.ConditionKeyMask.SourceGroup) || x.SourceGroup == (key.SourceGroup ?? 0)) &&
+                                              (!keyMask.HasFlagFast(IDatabaseProvider.ConditionKeyMask.SourceEntry)  || x.SourceEntry == (key.SourceEntry ?? 0)) &&
+                                              (!keyMask.HasFlagFast(IDatabaseProvider.ConditionKeyMask.SourceId)  || x.SourceId == (key.SourceId ?? 0)));
+            }
+            return await model.Conditions.Where(predicate).ToListAsync<IConditionLine>();
         }
         
-        public IEnumerable<ISpellScriptName> GetSpellScriptNames(int spellId)
+        public virtual async Task<IReadOnlyList<IPlayerChoice>?> GetPlayerChoicesAsync() => null;
+
+        public virtual async Task<IReadOnlyList<IPlayerChoiceResponse>?> GetPlayerChoiceResponsesAsync() => null;
+
+        public virtual async Task<IReadOnlyList<IPlayerChoiceResponse>?> GetPlayerChoiceResponsesAsync(int choiceId) => null;
+
+        public async Task<IReadOnlyList<ISpellScriptName>> GetSpellScriptNames(int spellId)
         {
-            using var model = Database();
-            return model.SpellScriptNames.Where(spell => spell.SpellId == spellId).ToList();
+            await using var model = Database();
+            return await model.SpellScriptNames.Where(spell => spell.SpellId == spellId).ToListAsync();
         }
 
-        public abstract ICreature? GetCreatureByGuid(uint guid);
+        public abstract Task<IBroadcastTextLocale?> GetBroadcastTextLocaleByTextAsync(string text);
 
-        public abstract IGameObject? GetGameObjectByGuid(uint guid);
+        public abstract Task<ICreature?> GetCreatureByGuidAsync(uint entry, uint guid);
+
+        public abstract Task<IGameObject?> GetGameObjectByGuidAsync(uint entry, uint guid);
 
         public abstract IEnumerable<IGameObject> GetGameObjectsByEntry(uint entry);
-        
+        public abstract Task<IReadOnlyList<ICreature>> GetCreaturesByEntryAsync(uint entry);
+        public abstract Task<IReadOnlyList<IGameObject>> GetGameObjectsByEntryAsync(uint entry);
+
         public abstract IEnumerable<ICreature> GetCreaturesByEntry(uint entry);
 
 
-        public abstract IEnumerable<ICreature> GetCreatures();
-        public abstract Task<IList<ICreature>> GetCreaturesByMapAsync(uint map);
-        public abstract Task<IList<IGameObject>> GetGameObjectsByMapAsync(uint map);
+        public abstract IReadOnlyList<ICreature> GetCreatures();
+        public abstract Task<IReadOnlyList<ICreature>> GetCreaturesByMapAsync(int map);
+        public abstract Task<IReadOnlyList<IGameObject>> GetGameObjectsByMapAsync(int map);
         public abstract IEnumerable<IGameObject> GetGameObjects();
 
-        public IEnumerable<ICoreCommandHelp> GetCommands()
+        public async Task<IReadOnlyList<ICoreCommandHelp>> GetCommands()
         {
             using var model = Database();
             return model.Commands.ToList();
         }
 
-        public abstract Task<IList<ITrinityString>> GetStringsAsync();
-        public abstract Task<IList<IDatabaseSpellDbc>> GetSpellDbcAsync();
+        public abstract Task<IReadOnlyList<ITrinityString>> GetStringsAsync();
+        public abstract Task<IReadOnlyList<IDatabaseSpellDbc>> GetSpellDbcAsync();
 
-        public async Task<List<IPointOfInterest>> GetPointsOfInterestsAsync()
+        public async Task<IReadOnlyList<IPointOfInterest>> GetPointsOfInterestsAsync()
         {
             if (!Supports<IPointOfInterest>())
                 return new List<IPointOfInterest>();
@@ -445,11 +394,141 @@ namespace WDE.TrinityMySqlDatabase.Database
             return await model.PointsOfInterest.OrderBy(t => t.Id).ToListAsync<IPointOfInterest>();
         }
 
-        public IEnumerable<ISmartScriptProjectItem> GetProjectItems() => Enumerable.Empty<ISmartScriptProjectItem>();
-        public IEnumerable<ISmartScriptProject> GetProjects() => Enumerable.Empty<ISmartScriptProject>();
+        public IEnumerable<ISmartScriptProjectItem> GetLegacyProjectItems() => Enumerable.Empty<ISmartScriptProjectItem>();
+        public IEnumerable<ISmartScriptProject> GetLegacyProjects() => Enumerable.Empty<ISmartScriptProject>();
         public abstract IBroadcastText? GetBroadcastTextByText(string text);
         public abstract Task<IBroadcastText?> GetBroadcastTextByTextAsync(string text);
         public abstract Task<IBroadcastText?> GetBroadcastTextByIdAsync(uint id);
+
+        public virtual Task<IReadOnlyList<IItem>?> GetItemTemplatesAsync() => Task.FromResult<IReadOnlyList<IItem>?>(null);
+
+        protected ExpressionStarter<TR> GenerateWhereConditionsForEventScript<TR>(IEnumerable<(uint command, int dataIndex, long valueToSearch)> conditions) where TR : IEventScriptLine
+        {
+            var predicate = PredicateBuilder.New<TR>();
+            foreach (var value in conditions)
+            {
+                if (value.dataIndex == 0)
+                    predicate = predicate.Or(o => o.Command == value.command && o.DataLong1 == (ulong)value.valueToSearch);
+                else if (value.dataIndex == 1)
+                    predicate = predicate.Or(o => o.Command == value.command && o.DataLong2 == (ulong)value.valueToSearch);
+                else if (value.dataIndex == 2)
+                    predicate = predicate.Or(o => o.Command == value.command && o.DataInt == (int)value.valueToSearch);
+            }
+            return predicate;
+        }
+
+        public abstract Task<IReadOnlyList<IEventScriptLine>> FindEventScriptLinesBy(IReadOnlyList<(uint command, int dataIndex, long valueToSearch)> conditions);
+
+        public abstract Task<IReadOnlyList<ICreatureModelInfo>> GetCreatureModelInfoAsync();
+
+        public abstract Task<ICreatureModelInfo?> GetCreatureModelInfo(uint displayId);
+
+        public abstract Task<IReadOnlyList<IEventScriptLine>> GetEventScript(EventScriptType type, uint id);
+
+        public ISceneTemplate? GetSceneTemplate(uint sceneId)
+        {
+            if (!Supports<ISceneTemplate>())
+                return null;
+            using var model = Database();
+            return model.SceneTemplates.FirstOrDefault(x => x.SceneId == sceneId);
+        }
+        
+        public async Task<ISceneTemplate?> GetSceneTemplateAsync(uint sceneId)
+        {
+            if (!Supports<ISceneTemplate>())
+                return null;
+            await using var model = Database();
+            return await model.SceneTemplates.FirstOrDefaultAsync(x => x.SceneId == sceneId);
+        }
+
+        public async Task<IReadOnlyList<ISceneTemplate>?> GetSceneTemplatesAsync()
+        {
+            if (!Supports<ISceneTemplate>())
+                return null; 
+            await using var model = Database();
+            return await model.SceneTemplates.ToListAsync<ISceneTemplate>();
+        }
+
+        public virtual async Task<IPhaseName?> GetPhaseNameAsync(uint phaseId) => null;
+
+        public virtual async Task<IReadOnlyList<IPhaseName>?> GetPhaseNamesAsync() => null;
+        
+        public async Task<IReadOnlyList<INpcSpellClickSpell>> GetNpcSpellClickSpells(uint creatureId)
+        {
+            return Array.Empty<INpcSpellClickSpell>();
+        }
+
+        public virtual IList<IPhaseName>? GetPhaseNames() => null;
+        
+        public abstract Task<IReadOnlyList<ICreatureAddon>> GetCreatureAddons();
+
+        public abstract Task<IReadOnlyList<ICreatureTemplateAddon>> GetCreatureTemplateAddons();
+
+        public abstract Task<ICreatureAddon?> GetCreatureAddon(uint entry, uint guid);
+
+        public abstract Task<ICreatureTemplateAddon?> GetCreatureTemplateAddon(uint entry);
+
+        public abstract Task<IReadOnlyList<IWaypointData>?> GetWaypointData(uint pathId);
+
+        public virtual async Task<IReadOnlyList<ISmartScriptWaypoint>?> GetSmartScriptWaypoints(uint pathId, uint count)
+        {
+            await using var model = Database();
+            return await model.SmartScriptWaypoint.Where(wp => wp.PathId >= pathId && wp.PathId < pathId + count).OrderBy(wp => wp.PointId).ToListAsync<ISmartScriptWaypoint>();
+        }
+
+        public virtual async Task<IReadOnlyList<IScriptWaypoint>?> GetScriptWaypoints(uint pathId)
+        {
+            await using var model = Database();
+            return await model.ScriptWaypoint.Where(wp => wp.PathId == pathId).OrderBy(wp => wp.PointId).ToListAsync<IScriptWaypoint>();
+        }
+
+        public async Task<IReadOnlyList<IMangosWaypoint>?> GetMangosWaypoints(uint pathId) => null;
+        
+        public async Task<IReadOnlyList<IMangosCreatureMovement>?> GetMangosCreatureMovement(uint guid) => null;
+
+        public async Task<IReadOnlyList<IMangosCreatureMovementTemplate>?> GetMangosCreatureMovementTemplate(uint entry, uint? pathId) => null;
+
+        public async Task<IMangosWaypointsPathName?> GetMangosPathName(uint pathId) => null;
+
+        public async Task<IReadOnlyList<ICreatureEquipmentTemplate>?> GetCreatureEquipmentTemplates()
+        {
+            await using var model = Database();
+            return await model.EquipmentTemplate.ToListAsync<ICreatureEquipmentTemplate>();
+        }
+
+        public async Task<IReadOnlyList<IGameEventCreature>> GetGameEventCreaturesAsync()
+        {
+            await using var model = Database();
+            return await model.GameEventCreature.ToListAsync<IGameEventCreature>();
+        }
+
+        public async Task<IReadOnlyList<IGameEventGameObject>> GetGameEventGameObjectsAsync()
+        {
+            await using var model = Database();
+            return await model.GameEventGameObject.ToListAsync<IGameEventGameObject>();
+        }
+
+        public async Task<IReadOnlyList<IGameEventCreature>?> GetGameEventCreaturesByGuidAsync(uint entry, uint guid)
+        {
+            await using var model = Database();
+            return await model.GameEventCreature.Where(x => x.Guid == guid).ToListAsync<IGameEventCreature>();
+        }
+
+        public async Task<IReadOnlyList<IGameEventGameObject>?> GetGameEventGameObjectsByGuidAsync(uint entry, uint guid)
+        {
+            await using var model = Database();
+            return await model.GameEventGameObject.Where(x => x.Guid == guid).ToListAsync<IGameEventGameObject>();
+        }
+
+        public async Task<IReadOnlyList<ICreatureEquipmentTemplate>?> GetCreatureEquipmentTemplates(uint entry)
+        {
+            await using var model = Database();
+            return await model.EquipmentTemplate.Where(x => x.Entry == entry).ToListAsync<ICreatureEquipmentTemplate>();
+        }
+
+        public async Task<IReadOnlyList<IMangosCreatureEquipmentTemplate>?> GetMangosCreatureEquipmentTemplates() => null;
+
+        public abstract Task<ICreature?> GetCreaturesByGuidAsync(uint entry, uint guid);
 
         public async Task<IList<IAuthRbacPermission>> GetRbacPermissionsAsync()
         {
@@ -467,6 +546,216 @@ namespace WDE.TrinityMySqlDatabase.Database
             
             await using var model = new TrinityAuthDatabase();
             return await model.RbacLinkedPermissions.ToListAsync<IAuthRbacLinkedPermission>();
+        }
+
+        
+        public async Task<IReadOnlyList<ISpawnGroupTemplate>> GetSpawnGroupTemplatesAsync()
+        {
+            if (!Supports<ISpawnGroupTemplate>())
+                return new List<ISpawnGroupTemplate>();
+            await using var model = Database();
+            return await model.SpawnGroupTemplate.ToListAsync<ISpawnGroupTemplate>();
+        }
+    
+        public async Task<IReadOnlyList<ISpawnGroupSpawn>> GetSpawnGroupSpawnsAsync()
+        {
+            if (!Supports<ISpawnGroupSpawn>())
+                return new List<ISpawnGroupSpawn>();
+            await using var model = Database();
+            return await model.SpawnGroupSpawns.ToListAsync<ISpawnGroupSpawn>();
+        }
+    
+        public async Task<ISpawnGroupTemplate?> GetSpawnGroupTemplateByIdAsync(uint id)
+        {
+            if (!Supports<ISpawnGroupTemplate>())
+                return null;
+            await using var model = Database();
+            return await model.SpawnGroupTemplate.FirstOrDefaultAsync<ISpawnGroupTemplate>(x => x.Id == id);
+        }
+    
+        public async Task<ISpawnGroupSpawn?> GetSpawnGroupSpawnByGuidAsync(uint guid, SpawnGroupTemplateType type)
+        {
+            if (!Supports<ISpawnGroupSpawn>())
+                return null;
+            await using var model = Database();
+            return await model.SpawnGroupSpawns.FirstOrDefaultAsync<ISpawnGroupSpawn>(x => x.Guid == guid && x.Type == type);
+        }
+        
+        public async Task<ISpawnGroupFormation?> GetSpawnGroupFormation(uint id) => null;
+        public async Task<IReadOnlyList<ISpawnGroupFormation>?> GetSpawnGroupFormations() => null;
+        
+        public virtual async Task<IReadOnlyList<ILootEntry>> GetLoot(LootSourceType type)
+        {
+            await using var database = Database();
+            switch (type)
+            {
+                case LootSourceType.Item:
+                    return await database.ItemLootTemplate.OrderBy(x => x.Entry)
+                        .ThenBy(x => x.GroupId)
+                        .ThenBy(x => x.Item)
+                        .ToListAsync<ILootEntry>();
+                case LootSourceType.GameObject:
+                    return await database.GameObjectLootTemplate.OrderBy(x => x.Entry)
+                        .ThenBy(x => x.GroupId)
+                        .ThenBy(x => x.Item)
+                        .ToListAsync<ILootEntry>();
+                case LootSourceType.Fishing:
+                    return await database.FishingLootTemplate.OrderBy(x => x.Entry)
+                        .ThenBy(x => x.GroupId)
+                        .ThenBy(x => x.Item)
+                        .ToListAsync<ILootEntry>();
+                case LootSourceType.Pickpocketing:
+                    return await database.PickpocketingLootTemplate.OrderBy(x => x.Entry)
+                        .ThenBy(x => x.GroupId)
+                        .ThenBy(x => x.Item)
+                        .ToListAsync<ILootEntry>();
+                case LootSourceType.Skinning:
+                    return await database.SkinningLootTemplate.OrderBy(x => x.Entry)
+                        .ThenBy(x => x.GroupId)
+                        .ThenBy(x => x.Item)
+                        .ToListAsync<ILootEntry>();
+                case LootSourceType.Disenchant:
+                    return await database.DisenchantLootTemplate.OrderBy(x => x.Entry)
+                        .ThenBy(x => x.GroupId)
+                        .ThenBy(x => x.Item)
+                        .ToListAsync<ILootEntry>();
+                case LootSourceType.Prospecting:
+                    return await database.ProspectingLootTemplate.OrderBy(x => x.Entry)
+                        .ThenBy(x => x.GroupId)
+                        .ThenBy(x => x.Item)
+                        .ToListAsync<ILootEntry>();
+                case LootSourceType.Milling:
+                    return await database.MillingLootTemplate.OrderBy(x => x.Entry)
+                        .ThenBy(x => x.GroupId)
+                        .ThenBy(x => x.Item)
+                        .ToListAsync<ILootEntry>();
+                case LootSourceType.Reference:
+                    return await database.ReferenceLootTemplate.OrderBy(x => x.Entry)
+                        .ThenBy(x => x.GroupId)
+                        .ThenBy(x => x.Item)
+                        .ToListAsync<ILootEntry>();
+                case LootSourceType.Creature:
+                    return await database.CreatureLootTemplate.OrderBy(x => x.Entry)
+                        .ThenBy(x => x.GroupId)
+                        .ThenBy(x => x.Item)
+                        .ToListAsync<ILootEntry>();
+                case LootSourceType.Mail:
+                    return await database.MailLootTemplate.OrderBy(x => x.Entry)
+                        .ThenBy(x => x.GroupId)
+                        .ThenBy(x => x.Item)
+                        .ToListAsync<ILootEntry>();
+                case LootSourceType.Spell:
+                    return await database.SpellLootTemplate.OrderBy(x => x.Entry)
+                        .ThenBy(x => x.GroupId)
+                        .ThenBy(x => x.Item)
+                        .ToListAsync<ILootEntry>();
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(type), type, null);
+            }
+        }
+
+        public async Task<ILootTemplateName?> GetLootTemplateName(LootSourceType type, uint entry) => null;
+        
+        public async Task<IReadOnlyList<ILootTemplateName>> GetLootTemplateName(LootSourceType type) => Array.Empty<ILootTemplateName>();
+
+        public abstract Task<(IReadOnlyList<ICreatureTemplate>, IReadOnlyList<ICreatureTemplateDifficulty>)>
+            GetCreatureLootCrossReference(uint lootId);
+
+        public abstract Task<(IReadOnlyList<ICreatureTemplate>, IReadOnlyList<ICreatureTemplateDifficulty>)>
+            GetCreatureSkinningLootCrossReference(uint lootId);
+
+        public abstract Task<(IReadOnlyList<ICreatureTemplate>, IReadOnlyList<ICreatureTemplateDifficulty>)>
+            GetCreaturePickPocketLootCrossReference(uint lootId);
+
+        public async Task<IReadOnlyList<IGameObjectTemplate>> GetGameObjectLootCrossReference(uint lootId)
+        {
+            await using var database = Database();
+            return await database.GameObjectTemplate.Where(template =>
+                template.Type == GameobjectType.Chest && template.Data1 == lootId).ToListAsync();
+        }
+
+        public virtual async Task<IReadOnlyList<ILootEntry>> GetReferenceLootCrossReference(uint lootId)
+        {
+            if (lootId == 0)
+                return Array.Empty<ILootEntry>();
+            await using var database = Database();
+            var loot = new[]
+            {
+                await database.CreatureLootTemplate.Where(x => x.Reference == lootId).ToListAsync<ILootEntry>(),
+                await database.GameObjectLootTemplate.Where(x => x.Reference == lootId).ToListAsync<ILootEntry>(),
+                await database.ItemLootTemplate.Where(x => x.Reference == lootId).ToListAsync<ILootEntry>(),
+                await database.FishingLootTemplate.Where(x => x.Reference == lootId).ToListAsync<ILootEntry>(),
+                await database.PickpocketingLootTemplate.Where(x => x.Reference == lootId).ToListAsync<ILootEntry>(),
+                await database.SkinningLootTemplate.Where(x => x.Reference == lootId).ToListAsync<ILootEntry>(),
+                await database.DisenchantLootTemplate.Where(x => x.Reference == lootId).ToListAsync<ILootEntry>(),
+                await database.ProspectingLootTemplate.Where(x => x.Reference == lootId).ToListAsync<ILootEntry>(),
+                await database.MillingLootTemplate.Where(x => x.Reference == lootId).ToListAsync<ILootEntry>(),
+                await database.MailLootTemplate.Where(x => x.Reference == lootId).ToListAsync<ILootEntry>(),
+                await database.SpellLootTemplate.Where(x => x.Reference == lootId).ToListAsync<ILootEntry>()
+            };
+            return loot.SelectMany(x => x).ToList();
+        }
+
+        public virtual async Task<IReadOnlyList<IConversationActor>> GetConversationActors()
+        {
+            return Array.Empty<IConversationActor>();
+        }
+
+        public virtual async Task<IReadOnlyList<IConversationActorTemplate>> GetConversationActorTemplates()
+        {
+            return Array.Empty<IConversationActorTemplate>();
+        }
+
+        public virtual async Task<IReadOnlyList<ILootEntry>> GetLoot(LootSourceType type, uint entry)
+        {
+            await using var database = Database();
+            switch (type)
+            {
+                case LootSourceType.Item:
+                    return await database.ItemLootTemplate.Where(x => x.Entry == entry).ToListAsync<ILootEntry>();
+                case LootSourceType.GameObject:
+                    return await database.GameObjectLootTemplate.Where(x => x.Entry == entry).ToListAsync<ILootEntry>();
+                case LootSourceType.Fishing:
+                    return await database.FishingLootTemplate.Where(x => x.Entry == entry).ToListAsync<ILootEntry>();
+                case LootSourceType.Pickpocketing:
+                    return await database.PickpocketingLootTemplate.Where(x => x.Entry == entry).ToListAsync<ILootEntry>();
+                case LootSourceType.Skinning:
+                    return await database.SkinningLootTemplate.Where(x => x.Entry == entry).ToListAsync<ILootEntry>();
+                case LootSourceType.Disenchant:
+                    return await database.DisenchantLootTemplate.Where(x => x.Entry == entry).ToListAsync<ILootEntry>();
+                case LootSourceType.Prospecting:
+                    return await database.ProspectingLootTemplate.Where(x => x.Entry == entry).ToListAsync<ILootEntry>();
+                case LootSourceType.Milling:
+                    return await database.MillingLootTemplate.Where(x => x.Entry == entry).ToListAsync<ILootEntry>();
+                case LootSourceType.Reference:
+                    return await database.ReferenceLootTemplate.Where(x => x.Entry == entry).ToListAsync<ILootEntry>();
+                case LootSourceType.Creature:
+                    return await database.CreatureLootTemplate.Where(x => x.Entry == entry).ToListAsync<ILootEntry>();
+                case LootSourceType.Mail:
+                    return await database.MailLootTemplate.Where(x => x.Entry == entry).ToListAsync<ILootEntry>();
+                case LootSourceType.Spell:
+                    return await database.SpellLootTemplate.Where(x => x.Entry == entry).ToListAsync<ILootEntry>();
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(type), type, null);
+            }
+        }
+
+        public async Task<IReadOnlyList<IQuestRelation>> GetQuestStarters(uint questId)
+        {
+            await using var model = Database();
+            var creatures = await model.CreatureQuestStarters.Where(x => x.Quest == questId).ToListAsync<IQuestRelation>();
+            var gameobjects = await model.GameObjectQuestStarters.Where(x => x.Quest == questId).ToListAsync<IQuestRelation>();
+            creatures.AddRange(gameobjects);
+            return creatures;
+        }
+
+        public async Task<IReadOnlyList<IQuestRelation>> GetQuestEnders(uint questId)
+        {
+            await using var model = Database();
+            var creatures = await model.CreatureQuestEnders.Where(x => x.Quest == questId).ToListAsync<IQuestRelation>();
+            var gameobjects = await model.GameObjectQuestEnders.Where(x => x.Quest == questId).ToListAsync<IQuestRelation>();
+            creatures.AddRange(gameobjects);
+            return creatures;
         }
 
         private bool Supports<R>()

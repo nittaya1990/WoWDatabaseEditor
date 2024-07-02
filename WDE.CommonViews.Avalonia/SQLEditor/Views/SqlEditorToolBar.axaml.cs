@@ -1,18 +1,18 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 
-namespace WDE.CommonViews.Avalonia.SQLEditor.Views
-{
-    public class SqlEditorToolBar : UserControl
-    {
-        public SqlEditorToolBar()
-        {
-            InitializeComponent();
-        }
+namespace WDE.CommonViews.Avalonia.SQLEditor.Views;
 
-        private void InitializeComponent()
-        {
-            AvaloniaXamlLoader.Load(this);
-        }
+public partial class SqlEditorToolBar : UserControl
+{
+    public SqlEditorToolBar()
+    {
+        InitializeComponent();
+    }
+        
+    private void InitializeComponent()
+    {
+        AvaloniaXamlLoader.Load(this);
     }
 }

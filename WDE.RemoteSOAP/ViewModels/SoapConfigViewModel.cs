@@ -11,8 +11,8 @@ using WDE.RemoteSOAP.Services.Soap;
 
 namespace WDE.RemoteSOAP.ViewModels
 {
-    [AutoRegister]
-    public class SoapConfigViewModel : BindableBase, IConfigurable
+    [AutoRegister(Platforms.Desktop)]
+    public class SoapConfigViewModel : BindableBase, IFirstTimeWizardConfigurable
     {
         private readonly IConnectionSettingsProvider settings;
         private string? host;
@@ -61,7 +61,7 @@ namespace WDE.RemoteSOAP.ViewModels
                 {
                     TestConnectionOutput = "Connection failed: " + e.Message;
                 }
-            }, _ => !string.IsNullOrEmpty(host) && int.TryParse(port, out var _) && !string.IsNullOrEmpty(user) && !string.IsNullOrEmpty(pass));
+            }, () => !string.IsNullOrEmpty(host) && int.TryParse(port, out var _) && !string.IsNullOrEmpty(user) && !string.IsNullOrEmpty(pass));
 
             PropertyChanged += (_, _) => TestConnection.RaiseCanExecuteChanged();
         }

@@ -13,7 +13,7 @@ namespace WDE.Common.Services
 
         Stream OpenRead(string path);
         Stream OpenWrite(string path);
-        FileSystemInfo ResolvePhysicalPath(string path);
+        FileInfo ResolvePhysicalPath(string path);
     }
 
     public static class FileSystemExtensions
@@ -39,6 +39,15 @@ namespace WDE.Common.Services
         public static byte[] ReadAllBytes(this IFileSystem fs, string virtualPath)
         {
             return File.ReadAllBytes(fs.ResolvePhysicalPath(virtualPath).FullName);
+        }
+        public static void WriteAllBytes(this IFileSystem fs, string virtualPath, byte[] bytes)
+        {
+            File.WriteAllBytes(fs.ResolvePhysicalPath(virtualPath).FullName, bytes);
+        }
+        
+        public static string[] GetFiles(this IFileSystem fs, string virtualPath)
+        {
+            return Directory.GetFiles(fs.ResolvePhysicalPath(virtualPath).FullName);
         }
     }
 }

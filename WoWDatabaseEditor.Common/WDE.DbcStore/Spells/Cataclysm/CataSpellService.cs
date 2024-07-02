@@ -4,11 +4,14 @@ using System.IO;
 using System.Linq;
 using WDE.Common.Services;
 using WDE.DbcStore.FastReader;
+using WDE.Module.Attributes;
 
 namespace WDE.DbcStore.Spells.Cataclysm
 {
-    public class CataSpellService : ISpellService
+    public class CataSpellService : IDbcSpellService, IDbcSpellLoader
     {
+        private readonly DatabaseClientFileOpener opener;
+
         private class SpellCastTime
         {
             public uint Id;
@@ -22,7 +25,7 @@ namespace WDE.DbcStore.Spells.Cataclysm
             public uint Id { get; init; }
             public SpellEffectType EffectType { get; init; }
             public float EffectAmplitude { get; init; }
-            public uint AuraType { get; init; }
+            public SpellAuraType AuraType { get; init; }
             public uint AuraPeriod { get; init; }
             public uint EffectBasePoints { get; init; }
             public float EffectBonusCoefficient { get; init; }
@@ -37,9 +40,9 @@ namespace WDE.DbcStore.Spells.Cataclysm
             public uint EffectRadiusIndexA { get; init; }
             public uint EffectRadiusIndexB { get; init; }
             public float EffectRealPointsPerLevel { get; init; }
-            public uint[] EffectSpellClassMask { get; init; }
+            public uint[] EffectSpellClassMask { get; init; } = Array.Empty<uint>();
             public uint EffectTriggerSpell { get; init; }
-            public uint[] ImplicitTarget { get; init; }
+            public uint[] ImplicitTarget { get; init; } = Array.Empty<uint>();
             public uint SpellId { get; init; }
             public uint EffectIndex { get; init; }
             public uint EffectAttributes { get; init; }
@@ -73,8 +76,8 @@ namespace WDE.DbcStore.Spells.Cataclysm
             public SpellEffect[]? SpellEffects { get; set; }
             public uint SpellCastingRequirementsId { get; init; }
             public SpellCastingRequirements? SpellCastingRequirements { get; init; }
-            
-            public string Name { get; init; }
+
+            public string Name { get; init; } = null!;
             public string? Description { get; init; }
             public uint? SkillLine { get; set; }
             public SpellCastTime? CastTime { get; set; }
@@ -83,11 +86,15 @@ namespace WDE.DbcStore.Spells.Cataclysm
         private Dictionary<uint, SpellCastTime> spellCastTimes = new();
         private Dictionary<uint, SpellCastingRequirements> requirements = new();
         private Dictionary<uint, SpellData> spells = new();
-        
-        public void Load(string path)
-        {
-            var opener = new DatabaseClientFileOpener();
+        private List<SpellData> spellsList = new();
 
+        public CataSpellService(DatabaseClientFileOpener opener)
+        {
+            this.opener = opener;
+        }
+        
+        public void Load(string path, DBCLocales dbcLocales)
+        {
             foreach (var row in opener.Open(Path.Join(path, "SpellCastingRequirements.dbc")))
             {
                 requirements[row.GetUInt(0)] = new SpellCastingRequirements()
@@ -137,7 +144,7 @@ namespace WDE.DbcStore.Spells.Cataclysm
                 var castingRequirements = row.GetUInt(34);
                 var description = row.GetString(23);
 
-                spells[id] = new SpellData()
+                var spellData = spells[id] = new SpellData()
                 {
                     Id = id,
                     Attr0 = attr0,
@@ -158,6 +165,7 @@ namespace WDE.DbcStore.Spells.Cataclysm
                     Name = row.GetString(21),
                     Description = string.IsNullOrEmpty(description) ? null : description
                 };
+                spellsList.Add(spellData);
             }
 
             foreach (var row in opener.Open(Path.Join(path, "SpellEffect.dbc")))
@@ -168,7 +176,7 @@ namespace WDE.DbcStore.Spells.Cataclysm
                     Id = row.GetUInt(i++),
                     EffectType = (SpellEffectType)row.GetUInt(i++),
                     EffectAmplitude = row.GetFloat(i++),
-                    AuraType = row.GetUInt(i++),
+                    AuraType = (SpellAuraType)row.GetUInt(i++),
                     AuraPeriod = row.GetUInt(i++),
                     EffectBasePoints = row.GetUInt(i++),
                     EffectBonusCoefficient = row.GetFloat(i++),
@@ -215,11 +223,17 @@ namespace WDE.DbcStore.Spells.Cataclysm
                 var spell = spells[spellId];
                 spell.SkillLine = skillLine;
             }
+            
+            Changed?.Invoke(this);
         }
 
         public bool Exists(uint spellId) => spells.ContainsKey(spellId);
 
-        public T GetAttributes<T>(uint spellId) where T : Enum
+        public int SpellCount => spellsList.Count;
+
+        public uint GetSpellId(int index) => spellsList[index].Id;
+
+        public T GetAttributes<T>(uint spellId) where T : unmanaged, Enum
         {
             if (!spells.TryGetValue(spellId, out var spell))
                 return default;
@@ -275,6 +289,25 @@ namespace WDE.DbcStore.Spells.Cataclysm
             return null;
         }
 
+        public TimeSpan? GetSpellDuration(uint spellId)
+        {
+            return null;
+        }
+
+        public TimeSpan? GetSpellCategoryRecoveryTime(uint spellId)
+        {
+            return null;
+        }
+
+        public string GetName(uint spellId)
+        {
+            if (spells.TryGetValue(spellId, out var spell))
+                return spell.Name;
+            return "Unknown";
+        }
+
+        public event Action<ISpellService>? Changed;
+
         public string? GetDescription(uint spellId)
         {
             if (spells.TryGetValue(spellId, out var spell))
@@ -289,6 +322,13 @@ namespace WDE.DbcStore.Spells.Cataclysm
             return 0;
         }
 
+        public SpellAuraType GetSpellAuraType(uint spellId, int effectIndex)
+        {
+            if (TryGetEffect(spellId, effectIndex, out var effect))
+                return effect.AuraType;
+            return SpellAuraType.None;
+        }
+
         private bool TryGetEffect(uint spellId, int index, out SpellEffect effect)
         {
             effect = null!;
@@ -296,7 +336,7 @@ namespace WDE.DbcStore.Spells.Cataclysm
                 spell.SpellEffects.Length > index)
             {
                 effect = spell.SpellEffects[index];
-                return true;
+                return effect != null;
             }
             return false;
         }
@@ -315,6 +355,11 @@ namespace WDE.DbcStore.Spells.Cataclysm
             return SpellEffectType.None;
         }
 
+        public SpellTargetFlags GetSpellTargetFlags(uint spellId)
+        {
+            return SpellTargetFlags.None;
+        }
+
         public (SpellTarget, SpellTarget) GetSpellEffectTargetType(uint spellId, int index)
         {
             if (TryGetEffect(spellId, index, out var effect))
@@ -328,5 +373,14 @@ namespace WDE.DbcStore.Spells.Cataclysm
                 return effect.EffectMiscValueA;
             return 0;
         }
+
+        public uint GetSpellEffectTriggerSpell(uint spellId, int index)
+        {
+            if (TryGetEffect(spellId, index, out var effect))
+                return effect.EffectTriggerSpell;
+            return 0;
+        }
+
+        public virtual DBCVersions Version => DBCVersions.CATA_15595;
     }
 }

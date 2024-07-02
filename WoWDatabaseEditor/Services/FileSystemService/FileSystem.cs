@@ -1,8 +1,11 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
+using WDE.Common.Profiles;
 using WDE.Common.Services;
 using WDE.Common.Tasks;
 using WDE.Module.Attributes;
+using WDE.Profiles.Services;
 
 namespace WoWDatabaseEditorCore.Services.FileSystemService
 {
@@ -11,24 +14,16 @@ namespace WoWDatabaseEditorCore.Services.FileSystemService
     public class FileSystem : IFileSystem
     {
         private readonly IVirtualFileSystem vfs;
-        private static readonly string APPLICATION_FOLDER = "WoWDatabaseEditor";
+        public static readonly string APPLICATION_FOLDER = "WoWDatabaseEditor";
         
         public FileSystem(IVirtualFileSystem vfs)
         {
             this.vfs = vfs;
             var localDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            vfs.MountDirectory("~", Path.Join(localDataPath, APPLICATION_FOLDER, TryGetProfile()));
+            vfs.MountDirectory("~", Path.Join(localDataPath, APPLICATION_FOLDER, ProfileService.ReadDefaultProfileKey()));
+            vfs.MountDirectory("/common", Path.Join(localDataPath, APPLICATION_FOLDER, "common"));
         }
 
-        private string TryGetProfile()
-        {
-            if (GlobalApplication.Arguments.IsArgumentSet("profile") &&
-                GlobalApplication.Arguments.GetValue("profile") != null)
-                return GlobalApplication.Arguments.GetValue("profile")!;
-            if (File.Exists("profile"))
-                return File.ReadAllText("profile");
-            return "default";
-        }
 
         public bool Exists(string virtualPath)
         {
@@ -60,7 +55,7 @@ namespace WoWDatabaseEditorCore.Services.FileSystemService
             return path.Open(FileMode.Create, FileAccess.Write);
         }
 
-        public FileSystemInfo ResolvePhysicalPath(string path)
+        public FileInfo ResolvePhysicalPath(string path)
         {
             return vfs.ResolvePath(path);
         }

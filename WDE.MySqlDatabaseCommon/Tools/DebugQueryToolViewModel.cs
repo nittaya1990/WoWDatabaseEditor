@@ -66,11 +66,11 @@ namespace WDE.MySqlDatabaseCommon.Tools
             });
         }
 
-        private void OnTrace(string? arg1, string? arg2, TraceLevel tl)
+        private void OnTrace(string? arg1, string? arg2, TraceLevel tl, QueryType queryType)
         {
             mainThread.Dispatch(() =>
             {
-                Text.Append($"[{tl}]: {arg2}\n{arg1}");
+                Text.Append($"[{tl}]: {arg2}\n{arg1}\n");
                 ScrollToEnd.Invoke();
             });
         }

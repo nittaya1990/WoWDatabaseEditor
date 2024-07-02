@@ -1,17 +1,24 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Input;
 using AsyncAwaitBestPractices.MVVM;
 using Prism.Commands;
 using Prism.Events;
 using Prism.Mvvm;
+using WDE.Common;
 using WDE.Common.Events;
 using WDE.Common.Managers;
+using WDE.Common.Services;
 using WDE.Common.Services.MessageBox;
+using WDE.Common.Solution;
+using WDE.Common.Utils;
 using WDE.Common.Windows;
 using WDE.Module.Attributes;
 using WDE.MVVM.Observable;
+using WoWDatabaseEditorCore.Settings;
 
 namespace WoWDatabaseEditorCore.Managers
 {
@@ -21,6 +28,9 @@ namespace WoWDatabaseEditorCore.Managers
     {
         private readonly IEventAggregator eventAggregator;
         private readonly IMessageBoxService messageBoxService;
+        private readonly ISolutionTasksService solutionTasksService;
+        private readonly ISolutionItemEditorRegistry solutionEditorManager;
+        private readonly IGeneralEditorSettingsProvider generalEditorSettingsProvider;
         private ISolutionItemDocument? activeSolutionItemDocument;
         private IDocument? activeDocument;
         private IFocusableTool? activeTool;
@@ -29,12 +39,23 @@ namespace WoWDatabaseEditorCore.Managers
         private Dictionary<Type, ITool> typeToToolInstance = new();
         private List<ITool> allTools = new ();
 
+        private readonly Dictionary<ISolutionItem, IDocument> documents = new();
+
+        private readonly Dictionary<IDocument, ISolutionItem> documentToSolution = new();
+
         public DocumentManager(IEventAggregator eventAggregator, 
             IMessageBoxService messageBoxService,
+            ITextDocumentService textDocumentService,
+            ISolutionTasksService solutionTasksService,
+            ISolutionItemEditorRegistry solutionEditorManager,
+            IGeneralEditorSettingsProvider generalEditorSettingsProvider,
             IEnumerable<ITool> tools)
         {
             this.eventAggregator = eventAggregator;
             this.messageBoxService = messageBoxService;
+            this.solutionTasksService = solutionTasksService;
+            this.solutionEditorManager = solutionEditorManager;
+            this.generalEditorSettingsProvider = generalEditorSettingsProvider;
             ActivateDocument = new DelegateCommand<IDocument>(doc => ActiveDocument = doc);
             foreach (var tool in tools)
             {
@@ -49,6 +70,32 @@ namespace WoWDatabaseEditorCore.Managers
                 if (e.Type == CollectionEventType.Remove && e.Item is IDisposable disposable)
                     disposable.Dispose();
             });
+            //OpenDocument(textDocumentService.CreateDocument("DEMO DEMO", "", "sql", true));
+            
+            
+            this.eventAggregator.GetEvent<DocumentClosedEvent>()
+                .Subscribe(document =>
+                {
+
+                });
+
+            this.eventAggregator.GetEvent<EventRequestOpenItem>()
+                .Subscribe(item =>
+                    {
+                        OpenDocument(item);
+                    },
+                    true);
+        }
+
+        private void RemoveDocument(IDocument document)
+        {
+            OpenedDocuments.Remove(document);
+
+            if (!documentToSolution.ContainsKey(document))
+                return;
+
+            documents.Remove(documentToSolution[document]);
+            documentToSolution.Remove(document);
         }
 
         public IReadOnlyList<ITool> AllTools => allTools;
@@ -71,15 +118,158 @@ namespace WoWDatabaseEditorCore.Managers
                 } else if (ActiveUndoRedo == activeDocument && activeDocument != null)
                     ActiveUndoRedo = null;
                 activeSolutionItemDocument = value as ISolutionItemDocument;
-                SetProperty(ref activeDocument, value);
-                RaisePropertyChanged(nameof(ActiveSolutionItemDocument));
+                if (activeDocument != value)
+                {
+                    SetProperty(ref activeDocument, value);
+                    RaisePropertyChanged(nameof(ActiveSolutionItemDocument));
+                }
                 SelectedTool = null;
                 eventAggregator.GetEvent<EventActiveDocumentChanged>().Publish(value);
             }
         }
         
+        public async Task<bool> TryCloseAllDocuments(bool closingEditor)
+        {
+            var modifiedDocuments = OpenedDocuments.Where(d => d.IsModified).ToList();
+            if (modifiedDocuments.Count > 0)
+            {
+                while (modifiedDocuments.Count > 0)
+                {
+                    var editor = modifiedDocuments[^1];
+                    var message = new MessageBoxFactory<MessageBoxButtonType>().SetTitle("Document is modified")
+                        .SetMainInstruction("Do you want to save the changes of " + editor.Title + "?")
+                        .SetContent("Your changes will be lost if you don't save them.")
+                        .SetIcon(MessageBoxIcon.Warning)
+                        .WithYesButton(MessageBoxButtonType.Yes)
+                        .WithNoButton(MessageBoxButtonType.No)
+                        .WithCancelButton(MessageBoxButtonType.Cancel);
+
+                    if (modifiedDocuments.Count > 1)
+                    {
+                        message.SetExpandedInformation("Other modified documents:\n" +
+                                                       string.Join("\n",
+                                                           modifiedDocuments.SkipLast(1).Select(d => d.Title)));
+                        message.WithButton("Yes to all", MessageBoxButtonType.CustomA)
+                            .WithButton("No to all", MessageBoxButtonType.CustomB);
+                    }
+
+                    MessageBoxButtonType result = await messageBoxService.ShowDialog(message.Build());
+
+                    if (result == MessageBoxButtonType.Cancel)
+                        return false;
+
+                    if (result == MessageBoxButtonType.Yes)
+                    {
+                        if (editor is IBeforeSaveConfirmDocument before)
+                        {
+                            if (await before.ShallSavePreventClosing())
+                                return false;
+                        }
+                        //editor.Save.Execute(null);
+                        if (editor is ISolutionItemDocument solutionItemDocument)
+                            await solutionTasksService.Save(solutionItemDocument);
+                        else
+                        {
+                            if (editor.Save is IAsyncCommand async)
+                                await async.ExecuteAsync();
+                            else
+                                editor.Save.Execute(null);
+                        }
+                        modifiedDocuments.RemoveAt(modifiedDocuments.Count - 1);
+                        RemoveDocument(editor);
+                    }
+                    else if (result == MessageBoxButtonType.No)
+                    {
+                        modifiedDocuments.RemoveAt(modifiedDocuments.Count - 1);
+                        RemoveDocument(editor);
+                    }
+                    else if (result == MessageBoxButtonType.CustomA)
+                    {
+                        foreach (var m in modifiedDocuments)
+                        {
+                            if (m is IBeforeSaveConfirmDocument before)
+                            {
+                                if (await before.ShallSavePreventClosing())
+                                {
+                                    return false;
+                                }
+                            }
+                            if (m is ISolutionItemDocument solutionItemDocument)
+                                await solutionTasksService.Save(solutionItemDocument);
+                            else
+                                m.Save.Execute(null);
+                        }
+                        modifiedDocuments.Clear();
+                    }
+                    else if (result == MessageBoxButtonType.CustomB)
+                    {
+                        modifiedDocuments.Clear();
+                    }
+                }
+            }
+
+            // when always restore is enabled, don't close documents so that the session can be saved
+            if (!closingEditor || generalEditorSettingsProvider.RestoreOpenTabsMode != RestoreOpenTabsMode.AlwaysRestore)
+            {
+                while (OpenedDocuments.Count > 0)
+                    RemoveDocument(OpenedDocuments[OpenedDocuments.Count - 1]);
+            }
+            
+            var modifiedTools = AllTools
+                .Select(t => t as ISavableTool)
+                .Where(t => t != null)
+                .Cast<ISavableTool>()
+                .Where(t => t.IsModified)
+                .ToList();
+
+            foreach (var tool in modifiedTools)
+            {
+                var message = new MessageBoxFactory<MessageBoxButtonType>().SetTitle("Tool is modified")
+                    .SetMainInstruction("Do you want to save the changes of " + tool.Title + "?")
+                    .SetContent("Your changes will be lost if you don't save them.")
+                    .SetIcon(MessageBoxIcon.Warning)
+                    .WithYesButton(MessageBoxButtonType.Yes)
+                    .WithNoButton(MessageBoxButtonType.No)
+                    .WithCancelButton(MessageBoxButtonType.Cancel);
+
+                MessageBoxButtonType result = await messageBoxService.ShowDialog(message.Build());
+                if (result == MessageBoxButtonType.Cancel)
+                    return false;
+
+                if (result == MessageBoxButtonType.Yes)
+                {
+                    await SaveWithTimeout(tool);
+                }
+                else if (result == MessageBoxButtonType.No)
+                {
+                }
+            }
+            
+            return true;    
+        }
+
+        private async Task SaveWithTimeout(ISavableTool tool)
+        {
+            var delay = Task.Delay(10000);
+
+            var finishedTask = await Task.WhenAny(delay, tool.Save.ExecuteAsync());
+
+            if (finishedTask == delay)
+            {
+                if (await messageBoxService.ShowDialog(new MessageBoxFactory<bool>()
+                        .SetTitle("Error while saving")
+                        .SetMainInstruction("Couldn't save " + tool.Title)
+                        .SetContent(
+                            "The save operation timed out. It might be fatal error or just connection problems. Do you want to try again?")
+                        .WithYesButton(true)
+                        .WithNoButton(false)
+                        .Build()))
+                    await SaveWithTimeout(tool);
+            }
+        }
+
         public bool BackgroundMode { get; private set; }
-        
+
         public void ActivateDocumentInTheBackground(IDocument document)
         {
             BackgroundMode = true;
@@ -156,17 +346,30 @@ namespace WoWDatabaseEditorCore.Managers
                         if (result == MessageBoxButtonType.Cancel)
                             close = false;
                         if (result == MessageBoxButtonType.Yes)
-                            editor.Save.Execute(null);
+                        {
+                            if (editor is IBeforeSaveConfirmDocument preventable)
+                            {
+                                if (await preventable.ShallSavePreventClosing())
+                                {
+                                    close = false;
+                                }
+                            }
+
+                            if (close)
+                            {
+                                if (editor is ISolutionItemDocument solutionItemDocument)
+                                    await solutionTasksService.Save(solutionItemDocument);
+                                else
+                                    editor.Save.Execute(null);
+                            }
+                        }
                     }
 
                     if (close)
                     {
                         if (origCommand != null)
                             await origCommand.ExecuteAsync();
-                        OpenedDocuments.Remove(editor);
-                        if (ActiveDocument == editor)
-                            ActiveDocument = OpenedDocuments.Count > 0 ? OpenedDocuments[0] : null;
-                        eventAggregator.GetEvent<DocumentClosedEvent>().Publish(editor);
+                        RemoveDocument(editor);
                         editor.CloseCommand = origCommand;
                     }
                 },
@@ -175,6 +378,53 @@ namespace WoWDatabaseEditorCore.Managers
             }
 
             ActiveDocument = editor;
+        }
+
+        public IDocument? OpenDocument(ISolutionItem item)
+        {
+            if (documents.ContainsKey(item))
+            {
+                OpenDocument(documents[item]);
+                return documents[item];
+            }
+            else
+            {
+                try
+                {
+                    IDocument editor = solutionEditorManager.GetEditor(item);
+                    OpenDocument(editor);
+                    documents[item] = editor;
+                    documentToSolution[editor] = item;
+                    return editor;
+                }
+                catch (SolutionItemEditorNotFoundException)
+                {
+                    messageBoxService.ShowDialog(new MessageBoxFactory<bool>().SetTitle("Editor not found")
+                        .SetMainInstruction(
+                            "Couldn't open item, because there is no editor registered for type " +
+                            item.GetType().Name)
+#if DEBUG
+                        .SetContent(
+                            $"There should be class that implements ISolutionItemEditorProvider<{item.GetType().Name}> and this class should be registered in containerRegister in module.")
+#endif
+                        .SetIcon(MessageBoxIcon.Warning)
+                        .WithOkButton(true)
+                        .Build());
+                    return null;
+                }
+                catch (Exception e)
+                {
+                    LOG.LogError(e);
+                    messageBoxService.ShowDialog(new MessageBoxFactory<bool>().SetTitle("Cannot open the editor")
+                        .SetMainInstruction(
+                            "Couldn't open item, because there was an error")
+                        .SetContent(e.Message)
+                        .SetIcon(MessageBoxIcon.Error)
+                        .WithOkButton(true)
+                        .Build());
+                    return null;
+                }
+            }
         }
 
         public void OpenTool<T>() where T : ITool

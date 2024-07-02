@@ -5,21 +5,31 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
+using Avalonia.Media;
+using WDE.Common.Avalonia;
 using WDE.Common.Avalonia.Controls;
+using WDE.Common.Utils;
 
 namespace WDE.SmartScriptEditor.Avalonia.Editor.UserControls
 {
     public abstract class SelectableTemplatedControl : TemplatedControl
     {
-        public static KeyModifiers MultiselectGesture { get; } = AvaloniaLocator.Current
-            .GetService<PlatformHotkeyConfiguration>()?.CommandModifiers ?? KeyModifiers.Control;
+        public static KeyModifiers MultiselectGesture { get; } = KeyGestures.CommandModifier;
         
+        public static readonly StyledProperty<IBrush> SpecialBackgroundProperty = AvaloniaProperty.Register<SelectableTemplatedControl, IBrush>(nameof(SpecialBackground));
+
+        public IBrush SpecialBackground
+        {
+            get => (IBrush)GetValue(SpecialBackgroundProperty);
+            set => SetValue(SpecialBackgroundProperty, value);
+        }
+
         public static readonly AvaloniaProperty DeselectAllRequestProperty =
             AvaloniaProperty.Register<SelectableTemplatedControl, ICommand>(nameof(DeselectAllRequest));
 
         public ICommand DeselectAllRequest
         {
-            get => (ICommand) GetValue(DeselectAllRequestProperty);
+            get => (ICommand?) GetValue(DeselectAllRequestProperty) ?? AlwaysDisabledCommand.Command; 
             set => SetValue(DeselectAllRequestProperty, value);
         }
         public static readonly DirectProperty<SelectableTemplatedControl, bool> IsSelectedProperty =
@@ -37,12 +47,14 @@ namespace WDE.SmartScriptEditor.Avalonia.Editor.UserControls
 
         private bool IsMultiSelect(KeyModifiers modifiers)
         {
-            return modifiers.HasFlag(MultiselectGesture);
+            return modifiers.HasFlagFast(MultiselectGesture);
         }
 
         private ulong lastPressedTimestamp = 0;
         private int lastClickCount = 0;
+        private bool wasAlreadySelectedOnLastPressed;
         private bool lastPressedWithControlOn = false;
+        private bool lastPressedWithShiftOn = false;
         private Point pressPosition;
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
@@ -50,21 +62,33 @@ namespace WDE.SmartScriptEditor.Avalonia.Editor.UserControls
 
             lastPressedTimestamp = e.Timestamp;
             lastClickCount = e.ClickCount;
+            wasAlreadySelectedOnLastPressed = isSelected;
             lastPressedWithControlOn = IsMultiSelect(e.KeyModifiers);
+            lastPressedWithShiftOn = e.KeyModifiers.HasFlagFast(KeyModifiers.Shift);
             pressPosition = e.GetPosition(this);
 
             if (e.ClickCount == 1)
             {
-                if (e.Source is FormattedTextBlock tb && tb.OverContext != null)
-                    return;
+                // in the past pressing on a link text wasn't selecting the item
+                // but this yield problems with dragging, when the drag is initialized by clicking on a link
+                //if (e.Source is FormattedTextBlock tb && tb.OverContext != null)
+                //    return;
 
-                if (!lastPressedWithControlOn)
-                    DeselectAllRequest?.Execute(null);
-                else if (!IsSelected)
-                    DeselectOthers();    
-                
-                if (!lastPressedWithControlOn && !IsSelected)
+                if (IsSelected)
+                {
+                    DeselectOthers();
                     IsSelected = true;
+                }
+                else
+                {
+                    if (!lastPressedWithControlOn)
+                        DeselectAllRequest?.Execute(null);
+                    else if (!IsSelected)
+                        DeselectOthers();
+                
+                    if (!lastPressedWithControlOn && !IsSelected)
+                        IsSelected = true;
+                }
                 e.Handled = true;
             }
         }
@@ -74,25 +98,33 @@ namespace WDE.SmartScriptEditor.Avalonia.Editor.UserControls
         protected override void OnPointerReleased(PointerReleasedEventArgs e)
         {
             base.OnPointerReleased(e);
+            var releasePosition = e.GetPosition(this);
+            var vector = pressPosition - releasePosition;
+            var dist = Math.Sqrt(vector.X * vector.X + vector.Y * vector.Y);
+            var hasDragged = dist >= 5;
             if (lastClickCount == 1 && (e.Timestamp - lastPressedTimestamp) <= 1000)
             {
                 if (e.Source is FormattedTextBlock tb && tb.OverContext != null)
                 {
-                    OnDirectEdit(tb.OverContext);
+                    OnDirectEdit(e.KeyModifiers.HasFlagFast(MultiselectGesture), tb.OverContext);
                     e.Handled = true;
                 }
                 else
                 {
                     if (lastPressedWithControlOn)
                     {
-                        var vector = pressPosition - e.GetPosition(this);
-                        var dist = Math.Sqrt(vector.X * vector.X + vector.Y * vector.Y);
-                        if (dist < 5)
+                        if (!hasDragged)
                         {
                             DeselectOthers();
                             IsSelected = !IsSelected;
                             e.Handled = true;   
                         }
+                    }
+                    else if (wasAlreadySelectedOnLastPressed && !hasDragged)
+                    {
+                        DeselectAllRequest?.Execute(null);
+                        IsSelected = true;
+                        e.Handled = true;
                     }
                 }
             }
@@ -104,7 +136,7 @@ namespace WDE.SmartScriptEditor.Avalonia.Editor.UserControls
         }
         
         protected virtual void OnEdit() {}
-        protected virtual void OnDirectEdit(object context) {}
+        protected virtual void OnDirectEdit(bool controlPressed, object context) {}
         
         static SelectableTemplatedControl()
         {

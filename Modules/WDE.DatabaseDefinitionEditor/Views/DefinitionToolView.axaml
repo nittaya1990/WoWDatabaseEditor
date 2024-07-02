@@ -1,0 +1,94 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:avaloniaEdit="https://github.com/avaloniaui/avaloniaedit"
+             xmlns:converters="clr-namespace:WDE.Common.Avalonia.Converters;assembly=WDE.Common.Avalonia"
+             xmlns:definitionEditor="clr-namespace:WDE.DatabaseDefinitionEditor.ViewModels.DefinitionEditor"
+             xmlns:views="clr-namespace:WDE.DatabaseDefinitionEditor.Views"
+             xmlns:tools="clr-namespace:WDE.DatabaseDefinitionEditor.ViewModels"
+             xmlns:utils="clr-namespace:WDE.Common.Avalonia.Utils;assembly=WDE.Common.Avalonia"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:DataType="tools:ToolsViewModel"
+             x:Class="WDE.DatabaseDefinitionEditor.Views.DefinitionToolView">
+    <UserControl.Resources>
+        <converters:NativeTextDocumentConverter x:Key="DocumentConverter" />
+        <converters:InverseBoolConverter x:Key="InverseBoolConverter" />
+    </UserControl.Resources>
+    <TabControl SelectedIndex="{CompiledBinding SelectedTabIndex}">
+        <TabItem Header="Definition generator">
+            <Grid ColumnDefinitions="200,10,*" RowDefinitions="*,10,Auto" DataContext="{CompiledBinding Definitions}">
+                <DockPanel LastChildFill="True">
+                    <TextBlock DockPanel.Dock="Top" TextWrapping="WrapWithOverflow" FontWeight="Bold" Padding="4">Connected database tables:</TextBlock>
+                    <ListBox ItemsSource="{CompiledBinding Tables, Mode=OneTime}"
+                             IsEnabled="{CompiledBinding IsLoading, Converter={StaticResource InverseBoolConverter}}"
+                             SelectedItem="{CompiledBinding SelectedTable, Mode=TwoWay}">
+                                  
+                    </ListBox>                    
+                </DockPanel>
+                <GridSplitter Grid.Column="1" Classes="vertical" />
+                <avaloniaEdit:TextEditor Grid.Column="2"
+                                         IsEnabled="{CompiledBinding IsLoading, Converter={StaticResource InverseBoolConverter}}"
+                                         AvalonEditExtra.SyntaxExtension="json"
+                                         Document="{CompiledBinding Definition, Converter={StaticResource DocumentConverter}}" 
+                                         BorderThickness="0"
+                                         ShowLineNumbers="True"
+                                         FontFamily="Consolas,Menlo,Courier,Courier New">
+                </avaloniaEdit:TextEditor>
+                <Button Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Command="{CompiledBinding SaveAllDefinitions}">Save all definitions</Button>
+            </Grid>
+        </TabItem>
+        <TabItem Header="Compatibility checker">
+            <Grid ColumnDefinitions="200,10,*" DataContext="{CompiledBinding Compatibility}">
+                <DockPanel LastChildFill="True">
+                    <TextBlock DockPanel.Dock="Top" FontWeight="Bold" Padding="4" TextWrapping="WrapWithOverflow">All provided table definitions:</TextBlock>
+                    <TextBox DockPanel.Dock="Top" Margin="5" Watermark="Search" Text="{CompiledBinding SearchText}" />
+                    <ListBox ItemsSource="{CompiledBinding Definitions, Mode=OneTime}"
+                             SelectedItem="{CompiledBinding SelectedDefinition, Mode=TwoWay}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel>
+                                    <WdeImage ImageUri="{CompiledBinding IconPath}" VerticalAlignment="Center" Margin="0,0,5,0" Width="24" Height="24" />
+                                    <StackPanel Orientation="Vertical">
+                                        <TextBlock Text="{CompiledBinding Name, Mode=OneTime}" FontWeight="Bold" />
+                                        <TextBlock Text="{CompiledBinding FileName, Mode=OneTime}" TextWrapping="WrapWithOverflow" />
+                                        <TextBlock Text="{CompiledBinding Description, Mode=OneTime}" TextWrapping="WrapWithOverflow" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>                    
+                </DockPanel>
+                <GridSplitter Grid.Column="1" Classes="vertical" />
+                <DockPanel Grid.Column="2">
+                    <TextBlock DockPanel.Dock="Top" FontWeight="Bold" Padding="4" TextWrapping="WrapWithOverflow">Raport:</TextBlock>
+                    <avaloniaEdit:TextEditor Document="{CompiledBinding Raport, Converter={StaticResource DocumentConverter}}" 
+                                             BorderThickness="0"
+                                             ShowLineNumbers="True"
+                                             FontFamily="Consolas,Menlo,Courier,Courier New">
+                    </avaloniaEdit:TextEditor>
+                </DockPanel>
+            </Grid>
+        </TabItem>
+        <TabItem Header="Coverage">
+            <Grid RowDefinitions="Auto,*,Auto,*" DataContext="{CompiledBinding Coverage}">
+                <TextBlock  Text="Missing tables:" FontWeight="Bold"/>
+                <ListBox Grid.Row="1" ItemsSource="{CompiledBinding MissingTables}" />
+                <TextBlock  Text="Covered tables:" FontWeight="Bold" Grid.Row="2" />
+                <ListBox Grid.Row="3" ItemsSource="{CompiledBinding CoveredTables}" />
+            </Grid>
+        </TabItem>
+        <TabItem Header="Definition editor">
+            <Panel>
+                <views:DefinitionEditorView DataContext="{CompiledBinding DefinitionEditor}"/>
+                <TeachingTip IsOpened="{CompiledBinding DefinitionEditor.ShowIntroTip}" VerticalAlignment="Bottom" Margin="20" Header="Welcome to the definition editor. Please read it before use.">
+                    <StackPanel Spacing="5">
+                        <TextBlock>This is a brand new table definition editor, which allows you easily create and modify table definitions. Before use, please keep in mind there are few quirks:</TextBlock>
+                        <TextBlock>Unlike many other features in the editor, definition editor DOESN'T SUPPORT UNDO.</TextBlock>
+                        <TextBlock>Each label has a tooltip explaining all the fields. Hover it to get help.</TextBlock>
+                    </StackPanel>
+                </TeachingTip>
+            </Panel>
+        </TabItem>
+    </TabControl>
+</UserControl>

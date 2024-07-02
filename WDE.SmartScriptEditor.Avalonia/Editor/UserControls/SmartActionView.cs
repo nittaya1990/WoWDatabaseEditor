@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using WDE.Common.Avalonia.Controls;
+using WDE.Common.Utils;
 using WDE.SmartScriptEditor.Models;
 
 namespace WDE.SmartScriptEditor.Avalonia.Editor.UserControls
@@ -21,26 +22,35 @@ namespace WDE.SmartScriptEditor.Avalonia.Editor.UserControls
         public static AvaloniaProperty DirectEditParameterProperty =
             AvaloniaProperty.Register<SmartActionView, ICommand>(nameof(DirectEditParameter));
 
+        public static AvaloniaProperty DirectOpenParameterProperty =
+            AvaloniaProperty.Register<SmartActionView, ICommand>(nameof(DirectOpenParameter));
+
         private int indent;
         public static readonly DirectProperty<SmartActionView, int> IndentProperty 
             = AvaloniaProperty.RegisterDirect<SmartActionView, int>("Indent", o => o.Indent, (o, v) => o.Indent = v);
 
         public ICommand DeselectAllButActionsRequest
         {
-            get => (ICommand) GetValue(DeselectAllButActionsRequestProperty);
+            get => (ICommand?) GetValue(DeselectAllButActionsRequestProperty) ?? AlwaysDisabledCommand.Command;
             set => SetValue(DeselectAllButActionsRequestProperty, value);
         }
 
         public ICommand EditActionCommand
         {
-            get => (ICommand) GetValue(EditActionCommandProperty);
+            get => (ICommand?) GetValue(EditActionCommandProperty) ?? AlwaysDisabledCommand.Command;
             set => SetValue(EditActionCommandProperty, value);
         }
         
         public ICommand DirectEditParameter
         {
-            get => (ICommand) GetValue(DirectEditParameterProperty);
+            get => (ICommand?) GetValue(DirectEditParameterProperty) ?? AlwaysDisabledCommand.Command;
             set => SetValue(DirectEditParameterProperty, value);
+        }
+
+        public ICommand DirectOpenParameter
+        {
+            get => (ICommand?) GetValue(DirectOpenParameterProperty) ?? AlwaysDisabledCommand.Command;
+            set => SetValue(DirectOpenParameterProperty, value);
         }
 
         public int Indent
@@ -54,9 +64,12 @@ namespace WDE.SmartScriptEditor.Avalonia.Editor.UserControls
             DeselectAllButActionsRequest?.Execute(null);
         }
 
-        protected override void OnDirectEdit(object context)
+        protected override void OnDirectEdit(bool controlPressed, object context)
         {
-            DirectEditParameter?.Execute(context);
+            if (controlPressed)
+                DirectOpenParameter?.Execute(context);
+            else
+                DirectEditParameter?.Execute(context);
         }
 
         protected override void OnEdit()

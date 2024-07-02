@@ -8,78 +8,21 @@ environment:
     secure: IZcgg6msojQGCM0rLsUNTA==
   DEPLOY_KEY:
     secure: SXvCUsowLsFFH1P7e3IsqldBlcPD0gQ8qpsSM8s73VUImWk+NW0dbnLjbytCriqD6O3+FiBLKWkE/v0bNckEJkwFDU8y2ZuNjmB2NIyAQViPyi72/a3vRPM7ruJH+BY0
-services:
-  - mysql
+  REPO_TOKEN:
+      secure: 0qeEEToZuwVcvYxnrAA5DeRQmdRMeYmrtmJKGUVFeTFteeMrw4z6pPUEE3wley1p
+init:
+  - ps: Start-Service MySQL80
 install:
 - cmd: git submodule update --init --recursive
 before_build:
 - ps: (Get-Content WoWDatabaseEditorCore.Avalonia/Services/ProgramNameService.cs) -replace 'Subtitle => ""', 'Subtitle => "for open source emulator use"' | Out-File -encoding UTF8 WoWDatabaseEditorCore.Avalonia/Services/ProgramNameService.cs
 build_script:
-- cmd: >-
-    Rem Building WDE
-    
-    dotnet publish -c Release --self-contained false -f net6.0 -o bin/wowdatabaseeditor-avalonia-win/ LoaderAvalonia/LoaderAvalonia.csproj -r win8-x64 -p:PublishSingleFile=true -p:PublishTrimmed=false -p:DebugType=none
-
-    dotnet publish -c Release --self-contained false -f net6.0 -o bin/wowdatabaseeditor-avalonia-mac/ LoaderAvalonia/LoaderAvalonia.csproj -r osx-x64
-
-    dotnet publish -c Release --self-contained false -f net6.0 -o bin/wowdatabaseeditor-avalonia-linux/ LoaderAvalonia/LoaderAvalonia.csproj -r linux-x64
-      
-    dotnet publish -c Release --self-contained false -f net6.0 -o bin/wowdatabaseeditor-avalonia-win/parser WoWPacketParserLoader -r win8-x64
-      
-    dotnet publish -c Release --self-contained false -f net6.0 -o bin/wowdatabaseeditor-avalonia-mac/parser WoWPacketParserLoader -r osx-x64
-      
-    dotnet publish -c Release --self-contained false -f net6.0 -o bin/wowdatabaseeditor-avalonia-linux/parser WoWPacketParserLoader -r linux-x64
-    
-    rename bin\wowdatabaseeditor-avalonia-mac\Updater _Updater
-    
-    rename bin\wowdatabaseeditor-avalonia-linux\Updater _Updater
-
-    rename bin\wowdatabaseeditor-avalonia-win\Updater.exe _Updater.exe
-
-    cd bin\wowdatabaseeditor-avalonia-win\
-
-    del /f AvaloniaStyles.exe AvaloniaStyles.deps.json AvaloniaStyles.runtimeconfig.json *.pdb Dock.* WoWDatabaseEditorCore.Avalonia.GUI.exe WoWDatabaseEditorCore.Avalonia.GUI.runtimeconfig.json WoWDatabaseEditorCore.Avalonia.GUI.deps.json WoWPacketParserLoader.exe WoWPacketParserLoader.deps.json
-
-    cd ..\..\
-
-    FOR %%A IN (bin\wowdatabaseeditor-avalonia-win\app.ini,bin\wowdatabaseeditor-avalonia-mac\app.ini,bin\wowdatabaseeditor-avalonia-linux\app.ini) DO (echo COMMIT=%APPVEYOR_REPO_COMMIT% >> %%A & echo BRANCH=%APPVEYOR_REPO_BRANCH% >> %%A & echo VERSION=%APPVEYOR_BUILD_VERSION% >> %%A & echo BUILD_VERSION=%APPVEYOR_BUILD_NUMBER% >> %%A & echo UPDATE_SERVER=%DEPLOY_URL% >> %%A & echo MARKETPLACE=default >> %%A)
-
-    FOR %%A IN (bin\wowdatabaseeditor-avalonia-win\parser,bin\wowdatabaseeditor-avalonia-mac\parser,bin\wowdatabaseeditor-avalonia-linux\parser) DO ( mkdir %%A\Parsers & cd %%A & ( FOR %%X in (WowPacketParserModule.*) DO ( move %%X Parsers\%%X ) ) & cd ..\..\..\ )
-
-    echo PLATFORM=Windows >> bin/wowdatabaseeditor-avalonia-win/app.ini
-
-    echo PLATFORM=MacOs >> bin/wowdatabaseeditor-avalonia-mac/app.ini
-
-    echo PLATFORM=Linux >> bin/wowdatabaseeditor-avalonia-linux/app.ini
-
-    Rem Mac OS Bundle
-
-    mkdir "WoW Database Editor.app"
-
-    mkdir "WoW Database Editor.app\Contents"
-
-    mkdir "WoW Database Editor.app\Contents\MacOS"
-
-    mkdir "WoW Database Editor.app\Contents\Resources"
-
-    copy WoWDatabaseEditorCore.Avalonia\Resources\Info.plist "WoW Database Editor.app\Contents"
-
-    copy WoWDatabaseEditorCore.Avalonia\Resources\icon.icns "WoW Database Editor.app\Contents\Resources"
-
-    move bin\wowdatabaseeditor-avalonia-mac\* "WoW Database Editor.app\Contents\MacOS"
-
-    for /d %%a in (bin\wowdatabaseeditor-avalonia-mac\*) do move "%%~fa" "WoW Database Editor.app\Contents\MacOS"
-
-    7z a WoWDatabaseEditorWindows.zip .\bin\wowdatabaseeditor-avalonia-win\*
-    
-    7z a WoWDatabaseEditorMacOs.zip "WoW Database Editor.app\"
-    
-    7z a WoWDatabaseEditorLinux.zip .\bin\wowdatabaseeditor-avalonia-linux\*
+- cmd: bash.exe build.sh
 test_script:
 - cmd: >-
     cd test
     
-    bash database_test.sh localhost 3306 root 'Password12!' 'C:\Program Files\MySQL\MySQL Server 5.7\bin\mysql'
+    bash database_test.sh localhost 3306 root 'Password12!' 'C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql'
 
     cd ../
 
@@ -98,14 +41,20 @@ test_script:
     dotnet test WDE.SqlInterpreter.Test/WDE.SqlInterpreter.Test.csproj
 
     dotnet test WDE.Common.Test/WDE.Common.Test.csproj
+      
+    dotnet test Modules/WDE.SqlWorkbench.Test/WDE.SqlWorkbench.Test.csproj
 
     dotnet test Rendering/TheEngine.Test/TheEngine.Test.csproj
 
     dotnet test WDE.WoWHeadConnector.Test/WDE.WoWHeadConnector.Test.csproj
 
     dotnet test WoWDatabaseEditorCore.Test/WoWDatabaseEditorCore.Test.csproj
-
-    dotnet test Modules/WDE.PacketViewer.Test/WDE.PacketViewer.Test.csproj
+      
+    dotnet test Modules/WDE.DatabaseEditors.Test/WDE.DatabaseEditors.Test.csproj
+      
+    dotnet test Modules/WDE.Debugger.Test/WDE.Debugger.Test.csproj
+      
+    Rem dotnet test Modules/WDE.PacketViewer.Test/WDE.PacketViewer.Test.csproj
 artifacts:
 - path: WoWDatabaseEditorMacOs.zip
   name: WoWDatabaseEditorMacOs.zip
@@ -119,6 +68,6 @@ deploy_script:
     
     IF NOT "%DEPLOY_KEY%" == "" curl -X POST "%DEPLOY_URL%/Upload" -H "accept: */*" -H "Content-Type: multipart/form-data" -F "branch=%APPVEYOR_REPO_BRANCH%" -F "marketplace=default" -F "platform=macos" -F "version=%APPVEYOR_BUILD_NUMBER%" -F "versionName=Build %APPVEYOR_BUILD_VERSION%" -F "user=%DEPLOY_USER%" -F "key=%DEPLOY_KEY%" -F "files=@WoWDatabaseEditorMacOs.zip;type=application/zip" -F "make_exec=WoW Database Editor.app/Contents/MacOS/WoWDatabaseEditorCore.Avalonia"
     
-    IF NOT "%DEPLOY_KEY%" == "" curl -X POST "%DEPLOY_URL%/Upload" -H "accept: */*" -H "Content-Type: multipart/form-data" -F "branch=%APPVEYOR_REPO_BRANCH%" -F "marketplace=default" -F "platform=linux" -F "version=%APPVEYOR_BUILD_NUMBER%" -F "versionName=Build %APPVEYOR_BUILD_VERSION%" -F "user=%DEPLOY_USER%" -F "key=%DEPLOY_KEY%" -F "files=@WoWDatabaseEditorLinux.zip;type=application/zip" -F "make_exec=WoWDatabaseEditorCore.Avalonia" -F "make_exec=_Updater"
+    IF NOT "%DEPLOY_KEY%" == "" curl -X POST "%DEPLOY_URL%/Upload" -H "accept: */*" -H "Content-Type: multipart/form-data" -F "branch=%APPVEYOR_REPO_BRANCH%" -F "marketplace=default" -F "platform=linux" -F "version=%APPVEYOR_BUILD_NUMBER%" -F "versionName=Build %APPVEYOR_BUILD_VERSION%" -F "user=%DEPLOY_USER%" -F "key=%DEPLOY_KEY%" -F "files=@WoWDatabaseEditorLinux.zip;type=application/zip" -F "make_exec=WoWDatabaseEditorCore.Avalonia" -F "make_exec=_Updater" -F "make_exec=parser/WowPacketParser"
     
     IF NOT "%DEPLOY_KEY%" == "" curl -X POST "%DEPLOY_URL%/Changelog/Add" -H  "accept: */*" -H  "Content-Type: application/json" -d "{\"version\":{\"branch\":\"%APPVEYOR_REPO_BRANCH%\",\"marketplace\":\"default\",\"version\":%APPVEYOR_BUILD_NUMBER%},\"user\":{\"user\":\"%DEPLOY_USER%\",\"key\":\"%DEPLOY_KEY%\"},\"entry\":\"%APPVEYOR_REPO_COMMIT_MESSAGE%%APPVEYOR_REPO_COMMIT_MESSAGE_EXTENDED%\"}"

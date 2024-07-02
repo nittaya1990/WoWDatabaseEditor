@@ -11,24 +11,27 @@ using WDE.SmartScriptEditor.Data;
 using WDE.SmartScriptEditor.Editor;
 using WDE.SmartScriptEditor.Editor.UserControls;
 using WDE.SmartScriptEditor.Models;
+using WDE.SqlQueryGenerator;
 
 namespace WDE.TrinitySmartScriptEditor.Providers
 {
     [AutoRegisterToParentScopeAttribute]
     public class SmartScriptSqlGenerator : ISolutionItemSqlProvider<SmartScriptSolutionItem>
     {
-        private readonly Lazy<IDatabaseProvider> database;
+        private readonly Lazy<ISmartScriptDatabaseProvider> database;
         private readonly IEventAggregator eventAggregator;
         private readonly Lazy<ISmartFactory> smartFactory;
         private readonly Lazy<ISmartDataManager> smartDataManager;
         private readonly Lazy<ISmartScriptExporter> exporter;
+        private readonly Lazy<IEditorFeatures> editorFeatures;
         private readonly Lazy<ISmartScriptImporter> importer;
 
         public SmartScriptSqlGenerator(IEventAggregator eventAggregator,
-            Lazy<IDatabaseProvider> database,
+            Lazy<ISmartScriptDatabaseProvider> database,
             Lazy<ISmartFactory> smartFactory,
             Lazy<ISmartDataManager> smartDataManager,
             Lazy<ISmartScriptExporter> exporter,
+            Lazy<IEditorFeatures> editorFeatures,
             Lazy<ISmartScriptImporter> importer)
         {
             this.eventAggregator = eventAggregator;
@@ -36,21 +39,22 @@ namespace WDE.TrinitySmartScriptEditor.Providers
             this.smartFactory = smartFactory;
             this.smartDataManager = smartDataManager;
             this.exporter = exporter;
+            this.editorFeatures = editorFeatures;
             this.importer = importer;
         }
 
-        public async Task<string> GenerateSql(SmartScriptSolutionItem item)
+        public async Task<IQuery> GenerateSql(SmartScriptSolutionItem item)
         {
-            SmartScript script = new(item, smartFactory.Value, smartDataManager.Value, new EmptyMessageboxService());
-            var lines = database.Value.GetScriptFor(item.Entry, item.SmartType).ToList();
-            var conditions = database.Value.GetConditionsFor(SmartConstants.ConditionSourceSmartScript, item.Entry, (int)item.SmartType).ToList();
+            SmartScript script = new(item, smartFactory.Value, smartDataManager.Value, new EmptyMessageboxService(), editorFeatures.Value, importer.Value);
+            var lines = (await database.Value.GetScriptFor(item.Entry ?? 0, item.EntryOrGuid, item.SmartType)).ToList();
+            var conditions = (await database.Value.GetConditionsForScript(item.Entry, item.EntryOrGuid, item.SmartType)).ToList();
             await importer.Value.Import(script, true, lines, conditions, null);
-            return exporter.Value.GenerateSql(item, script);
+            return await exporter.Value.GenerateSql(item, script);
         }
 
         private class EmptyMessageboxService : IMessageBoxService
         {
-            public Task<T?> ShowDialog<T>(IMessageBox<T> messageBox) => default;
+            public async Task<T?> ShowDialog<T>(IMessageBox<T> messageBox) => default;
         }
     }
 }

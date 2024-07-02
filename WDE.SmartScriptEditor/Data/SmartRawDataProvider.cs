@@ -1,77 +1,144 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
+using WDE.Common.Services.MessageBox;
+using WDE.Common.Tasks;
+using WDE.Common.Utils;
 using WDE.Module.Attributes;
 
 namespace WDE.SmartScriptEditor.Data
 {
     [AutoRegister]
     [SingleInstance]
-    public class SmartRawDataProvider : ISmartRawDataProvider
+    public class SmartRawDataProviderAsync : ISmartRawDataProviderAsync
     {
-        private List<SmartGenericJsonData> actions;
-        private List<SmartGenericJsonData> events;
-        private List<SmartGenericJsonData> targets;
-        private List<SmartGroupsJsonData> eventsGroups;
-        private List<SmartGroupsJsonData> actionsGroups;
-        private List<SmartGroupsJsonData> targetsGroups;
+        private List<SmartGenericJsonData>? actions;
+        private List<SmartGenericJsonData>? events;
+        private List<SmartGenericJsonData>? targets;
+        private List<SmartGroupsJsonData>? eventsGroups;
+        private List<SmartGroupsJsonData>? actionsGroups;
+        private List<SmartGroupsJsonData>? targetsGroups;
 
-        private readonly ISmartDataJsonProvider jsonProvider;
+        private readonly ISmartDataJsonProviderAsync jsonProvider;
         private readonly ISmartDataSerializationProvider serializationProvider;
+        private readonly IMainThread mainThread;
+        private readonly IMessageBoxService messageBoxService;
 
-        public SmartRawDataProvider(ISmartDataJsonProvider jsonProvider,
-            ISmartDataSerializationProvider serializationProvider)
+        public event Action? DefinitionsChanged;
+
+        public SmartRawDataProviderAsync(ISmartDataJsonProviderAsync jsonProvider,
+            ISmartDataSerializationProvider serializationProvider,
+            IMainThread mainThread,
+            IMessageBoxService messageBoxService)
         {
             this.jsonProvider = jsonProvider;
             this.serializationProvider = serializationProvider;
-            actions = serializationProvider.DeserializeSmartData<SmartGenericJsonData>(jsonProvider.GetActionsJson());
-            events = serializationProvider.DeserializeSmartData<SmartGenericJsonData>(jsonProvider.GetEventsJson());
-            targets = serializationProvider.DeserializeSmartData<SmartGenericJsonData>(jsonProvider.GetTargetsJson());
-            eventsGroups = serializationProvider.DeserializeSmartData<SmartGroupsJsonData>(jsonProvider.GetEventsGroupsJson());
-            actionsGroups = serializationProvider.DeserializeSmartData<SmartGroupsJsonData>(jsonProvider.GetActionsGroupsJson());
-            targetsGroups = serializationProvider.DeserializeSmartData<SmartGroupsJsonData>(jsonProvider.GetTargetsGroupsJson());
+            this.mainThread = mainThread;
+            this.messageBoxService = messageBoxService;
+            jsonProvider.SourceFilesChanged += OnSourceFilesChanged;
         }
 
-        public IEnumerable<SmartGenericJsonData> GetActions() => actions;
-        public IEnumerable<SmartGenericJsonData> GetEvents() => events;
-        public IEnumerable<SmartGenericJsonData> GetTargets() => targets;
-        public IEnumerable<SmartGroupsJsonData> GetEventsGroups() => eventsGroups;
-        public IEnumerable<SmartGroupsJsonData> GetActionsGroups() => actionsGroups;
-        public IEnumerable<SmartGroupsJsonData> GetTargetsGroups() => targetsGroups;
+        private IDisposable? pendingRefreh;
 
-        public async Task SaveEvents(List<SmartGenericJsonData> events)
+        private void OnSourceFilesChanged()
         {
-            await jsonProvider.SaveEventsAsync(serializationProvider.SerializeSmartData(events));
-            this.events = events;
+            void RefreshJsons()
+            {
+                actions = null;
+                events = null;
+                targets = null;
+                eventsGroups = null;
+                actionsGroups = null;
+                targetsGroups = null;
+                pendingRefreh = null;
+                DefinitionsChanged?.Invoke();
+            }
+
+            pendingRefreh?.Dispose();
+            pendingRefreh = mainThread.Delay(RefreshJsons, TimeSpan.FromSeconds(0.5));
         }
-        
-        public async Task SaveActions(List<SmartGenericJsonData> actions)
+
+        public async Task<IReadOnlyList<SmartGenericJsonData>> GetEvents()
         {
-            await jsonProvider.SaveActionsAsync(serializationProvider.SerializeSmartData(actions));
-            this.actions = actions;
+            if (events == null)
+                events = DeserializeData(await jsonProvider.GetEventsJson(), "events.json");
+            return events;
         }
-        
-        public async Task SaveTargets(List<SmartGenericJsonData> targets)
+
+        public async Task<IReadOnlyList<SmartGenericJsonData>> GetActions()
         {
-            await jsonProvider.SaveTargetsAsync(serializationProvider.SerializeSmartData(targets));
-            this.targets = targets;
+            if (actions == null)
+                actions = DeserializeData(await jsonProvider.GetActionsJson(), "actions.json");
+            return actions;
         }
-        
-        public async Task SaveEventGroups(List<SmartGroupsJsonData> groups)
+
+        public async Task<IReadOnlyList<SmartGenericJsonData>> GetTargets()
         {
-            await jsonProvider.SaveEventsGroupsAsync(serializationProvider.SerializeSmartData(groups));
-            eventsGroups = groups;
+            if (targets == null)
+                targets = DeserializeData(await jsonProvider.GetTargetsJson(), "targets.json");
+            return targets;
         }
-        
-        public async Task SaveActionsGroups(List<SmartGroupsJsonData> groups)
+
+        public async Task<IReadOnlyList<SmartGroupsJsonData>> GetEventsGroups()
         {
-            await jsonProvider.SaveActionsGroupsAsync(serializationProvider.SerializeSmartData(groups));
-            actionsGroups = groups;
+            if (eventsGroups == null)
+                eventsGroups = DeserializeGroups(await jsonProvider.GetEventsGroupsJson(), "events_groups.json");
+            return eventsGroups;
         }
-        
-        public async Task SaveTargetsGroups(List<SmartGroupsJsonData> groups)
+
+        public async Task<IReadOnlyList<SmartGroupsJsonData>> GetActionsGroups()
         {
-            await jsonProvider.SaveTargetsGroupsAsync(serializationProvider.SerializeSmartData(groups));
-            targetsGroups = groups;
+            if (actionsGroups == null)
+                actionsGroups = DeserializeGroups(await jsonProvider.GetActionsGroupsJson(), "actions_groups.json");
+            return actionsGroups;
         }
+
+        public async Task<IReadOnlyList<SmartGroupsJsonData>> GetTargetsGroups()
+        {
+            if (targetsGroups == null)
+                targetsGroups = DeserializeGroups(await jsonProvider.GetTargetsGroupsJson(), "targets_groups.json");
+            return targetsGroups;
+        }
+
+        private List<SmartGenericJsonData> DeserializeData(string json, string fileName)
+        {
+            try
+            {
+                return serializationProvider.DeserializeSmartData<SmartGenericJsonData>(json);
+            }
+            catch (Exception e)
+            {
+                messageBoxService.ShowDialog(new MessageBoxFactory<bool>()
+                    .SetTitle("Error while loading smart data")
+                    .SetMainInstruction("Smart data file is corrupted")
+                    .SetContent("File " + fileName +
+                                " is corrupted, either this is a faulty update or you have made a faulty change.\n\nThe SAI editor will not work correctly.\n\n"  + e.Message)
+                    .WithOkButton(true)
+                    .Build()).ListenErrors();
+            }
+
+            return new List<SmartGenericJsonData>();
+        }
+
+        private List<SmartGroupsJsonData> DeserializeGroups(string json, string fileName)
+        {
+            try
+            {
+                return serializationProvider.DeserializeSmartData<SmartGroupsJsonData>(json);
+            }
+            catch (Exception e)
+            {
+                messageBoxService.ShowDialog(new MessageBoxFactory<bool>()
+                    .SetTitle("Error while loading smart groups")
+                    .SetMainInstruction("Smart groups file is corrupted")
+                    .SetContent("File " + fileName +
+                                " is corrupted, either this is a faulty update or you have made a faulty change.\n\nThe SAI editor will not work correctly.\n\n"  + e.Message)
+                    .WithOkButton(true)
+                    .Build()).ListenErrors();
+            }
+
+            return new List<SmartGroupsJsonData>();
+        }
+
     }
 }

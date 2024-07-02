@@ -1,7 +1,9 @@
 using System;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Templates;
+using Avalonia.Media;
 using Prism.Ioc;
 using WDE.Common.Windows;
 
@@ -17,65 +19,82 @@ namespace WDE.Common.Avalonia.Utils
             return ContainerProvider.Resolve<T>();
         }
         
-        public static readonly AvaloniaProperty ModelProperty = AvaloniaProperty.RegisterAttached<Control, object>("Model",
-            typeof(ViewBind),coerce: OnModelChanged);
-        
-        public static object GetModel(Control control) => control.GetValue(ModelProperty);
-        public static void SetModel(Control control, object value) => control.SetValue(ModelProperty, value);
-        
         public static bool TryResolve(object viewModel, out object? view)
         {
             view = null;
-            if (AppViewLocator != null && AppViewLocator.TryResolve(viewModel.GetType(), out var viewType))
+            if (AppViewLocator != null && AppViewLocator.TryResolve(viewModel.GetType(), out var viewType, out _))
+            {
                 view = Activator.CreateInstance(viewType);
+            }
             
             return view != null;
         }
         
-        private static object OnModelChanged(IAvaloniaObject targetLocation, object viewModel)
+        public static bool CanResolve(object viewModel)
         {
-            if (TryResolve(viewModel, out var view))
-                SetContentProperty(targetLocation, view);
-            else
-                SetContentProperty(targetLocation, new Panel());
-
-            return viewModel;
-        }
-
-        private static void SetContentProperty(IAvaloniaObject targetLocation, object? view)
-        {
-            if (view != null && targetLocation != null)
-            {
-                Type? type = targetLocation.GetType();
-                type.GetProperty("Content")?.SetValue(targetLocation, view);
-            }
+            return AppViewLocator != null && AppViewLocator.TryResolve(viewModel.GetType(), out _, out _);
         }
     }
 
     public class ToolbarDataTemplate : IDataTemplate
     {
         public static IDataTemplate Template { get; } = new ToolbarDataTemplate();
-        public IControl Build(object param)
+        public Control Build(object? param)
         {
             if (ViewBind.AppViewLocator != null && param != null &&
                 ViewBind.AppViewLocator.TryResolveToolBar(param.GetType(), out var toolbarType))
             {
                 try
                 {
-                    return (IControl)Activator.CreateInstance(toolbarType)!;
+                    return (Control)Activator.CreateInstance(toolbarType)!;
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine(e);
+                    LOG.LogError(e);
                     return new TextBlock() { Text = e.ToString() };
                 }
             }
             return new Control();
         }
 
-        public bool Match(object data)
+        public bool Match(object? data)
         {
-            return data is not IControl && data is not string;
+            return data is not Control && data is not string;
+        }
+    }
+    
+    public class ViewDataTemplate : IDataTemplate
+    {
+        public static IDataTemplate Template { get; } = new ViewDataTemplate();
+        public Control Build(object? param)
+        {
+            if (param is Control c)
+                return c;
+
+            string? fail = null;
+            if (ViewBind.AppViewLocator != null && param != null &&
+                ViewBind.AppViewLocator.TryResolve(param.GetType(), out var viewType, out fail))
+            {
+                try
+                {
+                    return (Control)Activator.CreateInstance(viewType)!;
+                }
+                catch (Exception e)
+                {
+                    LOG.LogError(e);
+                    return new TextBlock() { Text = e.ToString() };
+                }
+            }
+            return new TextBlock()
+            {
+                Text = "Couldn't find a View for " + param?.GetType().Name + ". " + (fail ?? ""),
+                Foreground = Brushes.Red
+            };
+        }
+
+        public bool Match(object? data)
+        {
+            return data is not string;
         }
     }
 }

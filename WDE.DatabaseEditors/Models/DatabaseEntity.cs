@@ -1,29 +1,38 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using WDE.Common.Annotations;
 using WDE.Common.Database;
 using WDE.Common.History;
+using WDE.Common.Services;
+using WDE.DatabaseEditors.Data.Structs;
 using WDE.DatabaseEditors.History;
+using WDE.DatabaseEditors.Utils;
 
 namespace WDE.DatabaseEditors.Models
 {
-    public class DatabaseEntity : INotifyPropertyChanged
+    public sealed class DatabaseEntity : INotifyPropertyChanged
     {
-        public Dictionary<string, IDatabaseField> Cells { get; }
+        private DatabaseKey key;
+        
+        public Dictionary<ColumnFullName, IDatabaseField> Cells { get; }
 
         private IReadOnlyList<ICondition>? conditions;
+        
+        public bool ConditionsModified { get; set; }
 
         public IReadOnlyList<ICondition>? Conditions
         {
             get => conditions;
             set
             {
+                ConditionsModified = true;
                 var old = conditions;
                 conditions = value;
-                OnAction?.Invoke(new DatabaseEntityConditionsChangedHistoryAction(this, old, value));
+                OnConditionsChanged?.Invoke(this, old, value);
                 OnPropertyChanged();
             }
         }
@@ -31,34 +40,86 @@ namespace WDE.DatabaseEditors.Models
         public IEnumerable<IDatabaseField> Fields => Cells.Values;
 
         public event System.Action<IHistoryAction>? OnAction;
+        public event Action<DatabaseEntity, ColumnFullName, Action<IValueHolder>, Action<IValueHolder>>? FieldValueChanged;
+        
+        public event System.Action<DatabaseEntity, IReadOnlyList<ICondition>?, IReadOnlyList<ICondition>?>? OnConditionsChanged;
         
         public bool ExistInDatabase { get; set; }
-        
-        public uint Key { get; }
-        
-        public DatabaseEntity(bool existInDatabase, uint key, Dictionary<string, IDatabaseField> cells, IReadOnlyList<ICondition>? conditions)
+
+        public DatabaseKey GenerateKey(DatabaseTableDefinitionJson definition)
         {
+            return Phantom ? ForceGenerateKey(definition) : Key;
+        }
+        
+        public DatabaseKey ForceGenerateKey(DatabaseTableDefinitionJson definition)
+        {
+            return new DatabaseKey(definition.PrimaryKey.Select(GetLongMapping));
+        }
+        
+        public DatabaseKey Key
+        {
+            get
+            {
+                if (!key.IsPhantomKey)
+                    return key;
+                throw new Exception("Phantom key can't be generated");
+            }
+        }
+
+        public bool Phantom => key.IsPhantomKey;
+        
+        public DatabaseEntity(bool existInDatabase, 
+            DatabaseKey key,
+            Dictionary<ColumnFullName, IDatabaseField> cells,
+            IReadOnlyList<ICondition>? conditions)
+        {
+            Debug.Assert(!(existInDatabase && key.IsPhantomKey)); // phantom keys can never exist in the database!!
             ExistInDatabase = existInDatabase;
-            Key = key;
+            this.key = key;
             Cells = cells;
-            Conditions = conditions;
+            this.conditions = conditions;
             foreach (var databaseField in Cells)
             {
                 databaseField.Value.OnChanged += action =>
                 {
-                    OnAction?.Invoke(action);
+                    if (action is IDatabaseFieldHistoryAction a)
+                        OnAction?.Invoke(new DatabaseFieldWithKeyHistoryAction(a, key));
+                    else
+                        OnAction?.Invoke(action);
                 };
+                databaseField.Value.ValueChanged += ((columnName, undo, redo) =>
+                {
+                    FieldValueChanged?.Invoke(this, columnName, undo, redo);
+                });
             }
         }
 
-        public IDatabaseField? GetCell(string columnName)
+        // public IDatabaseField? GetCell(string columnName)
+        // {
+        //     return Cells.GetValueOrDefault(new ColumnFullName(null, columnName));
+        // }
+
+        public IDatabaseField? GetCell(string foreignTableName, string columnName)
         {
-            if (Cells.TryGetValue(columnName, out var cell))
-                return cell;
-            return null;
+            return Cells.GetValueOrDefault(new ColumnFullName(foreignTableName, columnName));
+        }
+
+        public IDatabaseField? GetCell(ColumnFullName columnName)
+        {
+            return Cells.GetValueOrDefault(columnName);
+        }
+
+        public void SetTypedCellOrThrow<T>(ColumnFullName column, T? value) where T : IComparable<T>
+        {
+            SetTypedCellOrThrowUnsafe(EntityChangeFlags.ChangeCurrent, column, value);
         }
 
         public void SetTypedCellOrThrow<T>(string column, T? value) where T : IComparable<T>
+        {
+            SetTypedCellOrThrowUnsafe(EntityChangeFlags.ChangeCurrent, ColumnFullName.Parse(column), value);
+        }
+
+        public void SetTypedCellOrThrowUnsafe<T>(EntityChangeFlags flags, ColumnFullName column, T? value) where T : IComparable<T>
         {
             var cell = GetCell(column);
             if (cell == null)
@@ -66,10 +127,15 @@ namespace WDE.DatabaseEditors.Models
             var typed = cell as DatabaseField<T>;
             if (typed == null)
                 throw new Exception("No column named " + column + " with type " + typeof(T));
-            typed.Current.Value = value;
+            if (flags.HasFlagFast(EntityChangeFlags.ChangeCurrent))
+                typed.Current.Value = value;
+            if (flags.HasFlagFast(EntityChangeFlags.ChangeOriginal))
+                typed.Original.Value = value;
         }
-        
-        public T? GetTypedValueOrThrow<T>(string columnName) where T : IComparable<T>
+
+        public T? GetTypedValueOrThrow<T>(string columnName) where T : IComparable<T> => GetTypedValueOrThrow<T>(ColumnFullName.Parse(columnName));
+
+        public T? GetTypedValueOrThrow<T>(ColumnFullName columnName) where T : IComparable<T>
         {
             var cell = GetCell(columnName);
             if (cell == null)
@@ -80,13 +146,25 @@ namespace WDE.DatabaseEditors.Models
             return typed.Current.Value;
         }
 
-        public DatabaseEntity Clone()
+        public long GetLongMapping(ColumnFullName columnName)
         {
-            var fields = new Dictionary<string, IDatabaseField>();
+            var cell = GetCell(columnName);
+            if (cell == null)
+                throw new Exception("No column named " + columnName);
+            if (cell is DatabaseField<long> l)
+                return l.Current.Value;
+            if (cell is DatabaseField<string> s)
+                return StringToLongMapping.Instance[s.Current.Value ?? ""];
+            throw new Exception("No column named " + columnName + " with type " + typeof(long) + " or " + typeof(string));
+        }
+
+        public DatabaseEntity Clone(DatabaseKey? newKey = null, bool? existInDatabase = null)
+        {
+            var fields = new Dictionary<ColumnFullName, IDatabaseField>(ColumnFullNameIgnoreCaseComparer.Instance);
             foreach (var field in Cells)
                 fields[field.Key] = field.Value.Clone();
             
-            return new DatabaseEntity(ExistInDatabase, Key, fields, Conditions == null ? null : CloneConditions(Conditions));
+            return new DatabaseEntity(existInDatabase ?? ExistInDatabase, newKey ?? Key, fields, Conditions == null ? null : CloneConditions(Conditions));
         }
 
         private IReadOnlyList<ICondition> CloneConditions(IReadOnlyList<ICondition> conditions)
@@ -97,9 +175,17 @@ namespace WDE.DatabaseEditors.Models
         public event PropertyChangedEventHandler? PropertyChanged;
 
         [NotifyPropertyChangedInvocator]
-        protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
+    }
+
+    [Flags]
+    public enum EntityChangeFlags
+    {
+        ChangeCurrent = 1,
+        ChangeOriginal = 2,
+        ChangeAll = ChangeCurrent | ChangeOriginal
     }
 }

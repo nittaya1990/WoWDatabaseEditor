@@ -66,8 +66,22 @@ namespace WoWDatabaseEditorCore.ViewModels
             }
         }
 
+        private void RemoveFinishedTasks()
+        {
+            int i = 0;
+            while (Tasks.Count > 15 && i < Tasks.Count)
+            {
+                var task = Tasks[i];
+                if (task.State == TaskState.FinishedSuccess)
+                    Tasks.RemoveAt(i);
+                else
+                    i++;
+            }
+        }
+        
         private void NewTask((ITask, ITaskProgress) pair)
         {
+            RemoveFinishedTasks();
             Tasks.Add(new TaskViewModel(this, pair.Item1, pair.Item2));
         }
 
@@ -91,7 +105,8 @@ namespace WoWDatabaseEditorCore.ViewModels
 
             private void OnProgressUpdate(ITaskProgress progress)
             {
-                Debug.Assert(SynchronizationContext.Current != null);
+                if (!OperatingSystem.IsBrowser())
+                    Debug.Assert(SynchronizationContext.Current != null);
                 MaxValue = progress.MaxProgress;
                 Progress = progress.CurrentProgress;
                 CurrentTask = progress.CurrentTask;

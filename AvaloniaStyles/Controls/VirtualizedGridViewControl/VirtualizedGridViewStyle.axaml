@@ -1,0 +1,81 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Design.PreviewWith>
+        <Border Padding="20">
+            <!-- Add Controls for Previewer Here -->
+        </Border>
+    </Design.PreviewWith>
+
+    <!-- more or less style is based on the ListBox style -->
+    
+    <Style Selector="VirtualizedGridView">
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+        <Setter Property="Background" Value="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseHighBrush}" />
+        <Setter Property="BorderThickness" Value="{DynamicResource ListBoxBorderThemeThickness}" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Visible" />
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Visible" />        
+        <Setter Property="ItemHeight" Value="24" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="border"
+                        ClipToBounds="{TemplateBinding ClipToBounds}"
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        CornerRadius="{TemplateBinding CornerRadius}">
+                    <DockPanel LastChildFill="True" Grid.IsSharedSizeScope="True">
+                        <ScrollViewer HorizontalScrollBarVisibility="Hidden"
+                                           VerticalScrollBarVisibility="Disabled"
+                                           Name="PART_HeaderScroll"
+                                           DockPanel.Dock="Top">
+                            <GridViewHeader>
+                                <Grid Name="PART_header">
+                                </Grid>
+                            </GridViewHeader>
+                        </ScrollViewer>
+                    
+                        <Border Padding="{TemplateBinding Padding}">
+                            <ScrollViewer Name="PART_ContentScroll"
+                                               HorizontalScrollBarVisibility="Visible"
+                                               VerticalScrollBarVisibility="Visible">
+                                <VirtualizedGridViewItemPresenter Items="{TemplateBinding Items}" 
+                                                                  HorizontalAlignment="Left"
+                                                                  MaxWidth="10000"
+                                                                  ItemHeight="{TemplateBinding ItemHeight}"
+                                                                  FocusedIndex="{TemplateBinding FocusedIndex, Mode=TwoWay}"
+                                                                  Selection="{TemplateBinding Selection}"
+                                                                  CheckedIndices="{TemplateBinding CheckedIndices}"
+                                                                  UseCheckBoxes="{TemplateBinding UseCheckBoxes}"
+                                                                  Columns="{TemplateBinding Columns}"
+                                                                  Name="PART_Children">
+                                </VirtualizedGridViewItemPresenter>
+                            </ScrollViewer>
+                        </Border>
+                    </DockPanel>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    
+    <!-- just default styles that look good in majority of usecases -->
+    <Style Selector="VirtualizedGridView ListBoxItem TextBlock">
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="VirtualizedGridView ListBoxItem CheckBox">
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
+    
+    <Style Selector="VirtualizedGridView ListBoxItem">
+        <!-- important to have proper column widths -->
+        <Setter Property="Padding" Value="0" />
+    </Style>
+    
+    <Style Selector="VirtualizedGridView GridSplitter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Gray" />
+        <Setter Property="BorderThickness" Value="0,0,1,0" />
+    </Style>
+</Styles>

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Runtime.CompilerServices;
 using TheMaths;
 
 namespace WDE.MpqReader.Readers
@@ -15,10 +16,9 @@ namespace WDE.MpqReader.Readers
             return currentPos >= end;
         }
 
-        public byte[] ReadBytes(int length)
+        public ReadOnlyMemory<byte> ReadBytes(int length)
         {
-            byte[] result = new byte[length];
-            Array.Copy(bytes, currentPos, result, 0, length);// Math.Min(length, bytes.Length - currentPos));
+            var result = bytes.AsMemory(currentPos, length);
             currentPos += length;
             return result;
         }
@@ -32,16 +32,41 @@ namespace WDE.MpqReader.Readers
 
         public int ReadInt32()
         {
-            int res = bytes[currentPos] | (bytes[currentPos + 1] << 8) | (bytes[currentPos + 2] << 16) | (bytes[currentPos + 3] << 24);
-            currentPos += 4;
-            return res;
+            unsafe 
+            {
+                fixed (byte* ptr = bytes.AsSpan(currentPos, 4))
+                {
+                    var result = *(int*)ptr;
+                    currentPos += 4;
+                    return result;
+                }
+            }
         }
 
         public uint ReadUInt32()
         {
-            uint res = (uint)(bytes[currentPos] | (bytes[currentPos + 1] << 8) | (bytes[currentPos + 2] << 16) | (bytes[currentPos + 3] << 24));
-            currentPos += 4;
-            return res;
+            unsafe 
+            {
+                fixed (byte* ptr = bytes.AsSpan(currentPos, 4))
+                {
+                    var result = *(uint*)ptr;
+                    currentPos += 4;
+                    return result;
+                }
+            }
+        }
+
+        public ulong ReadUInt64()
+        {
+            unsafe 
+            {
+                fixed (byte* ptr = bytes.AsSpan(currentPos, 8))
+                {
+                    var result = *(ulong*)ptr;
+                    currentPos += 8;
+                    return result;
+                }
+            }
         }
 
         public MemoryBinaryReader(byte[] bytes, int startPos, int maxLength)
@@ -74,19 +99,37 @@ namespace WDE.MpqReader.Readers
 
         internal Vector3 ReadVector3()
         {
-            return new Vector3(ReadFloat(), ReadFloat(), ReadFloat());
+            unsafe 
+            {
+                fixed (byte* pBuffer = bytes.AsSpan(currentPos, 12))
+                {
+                    float* pSample = (float*)pBuffer;
+                    var x = pSample[0];
+                    var y = pSample[1];
+                    var z = pSample[2];
+                    currentPos += 4;
+                    return new Vector3(x, y, z);
+                }
+            }
         }
 
         public float ReadFloat()
         {
-            float result = BitConverter.ToSingle(bytes, currentPos);
-            currentPos += 4;
-            return result;
+            unsafe 
+            {
+                fixed (byte* pBuffer = bytes.AsSpan(currentPos, 4))
+                {
+                    float* pSample = (float*)pBuffer;
+                    var result = *pSample;
+                    currentPos += 4;
+                    return result;
+                }
+            }
         }
 
         public byte ReadByte()
         {
-            //Debug.Assert(currentPos < bytes.Length, "Trying to read byte " + currentPos + " of " + bytes.Length + " len buff");
+            //Debug.Assert(debugArray == null || !debugArray.IsDisposed, "pooled array is disposed!!! That's so bad");
             return bytes[currentPos++];
         }
 
@@ -96,7 +139,7 @@ namespace WDE.MpqReader.Readers
             set => Seek(value);
         }
 
-        public int Size => bytes.Length;
+        public int Size => end;
 
         internal void Seek(int offI)
         {

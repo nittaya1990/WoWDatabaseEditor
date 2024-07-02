@@ -1,22 +1,23 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net6.0</TargetFramework>
+        <TargetFramework>net8.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-        <DefineConstants Condition="$(UseOpenGl) == 'true'">$(DefineConstants);USE_OPENTK</DefineConstants>
-        <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(DefineConstants);USE_OPENTK</DefineConstants>
+        <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+        <NoWarn>$(NoWarn),CS1570,CS1572,CS1574,CS1587,CS8765,CS8767,CS8604,CS8618,CS8600,CS8602</NoWarn>
     </PropertyGroup>
-    
     <ItemGroup>
       <ProjectReference Include="..\TheAvaloniaOpenGL\TheAvaloniaOpenGL.csproj" />
       <ProjectReference Include="..\TheMaths\TheMaths.csproj" />
     </ItemGroup>
-    
+
     <ItemGroup>
       <Folder Include="GUI" />
     </ItemGroup>
+
+    <Import Project="..\lib3d.props" />
     
     <ItemGroup>
       <None Update="internalShaders\theengine.cginc">
@@ -37,6 +38,30 @@
       <None Update="fonts\calibri.png">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </None>
+      <None Update="fonts\DroidSans.ttf">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="fonts\DroidSans-Bold.ttf">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="ECS\EntityExtensionsCodeGen.tt">
+        <Generator>TextTemplatingFileGenerator</Generator>
+        <LastGenOutput>EntityExtensionsCodeGen.cs</LastGenOutput>
+      </None>
+    </ItemGroup>
+    
+    <ItemGroup>
+      <PackageReference Include="ImGui.NET" Version="1.89.7.1" />
+      <PackageReference Include="JetBrains.Profiler.Api" Version="1.4.2" />
+      <PackageReference Include="OpenTK.Windowing.Desktop" Version="4.8.2" />
+    </ItemGroup>
+    
+    <ItemGroup>
+      <Compile Update="ECS\EntityExtensionsCodeGen.cs">
+        <AutoGen>True</AutoGen>
+        <DesignTime>True</DesignTime>
+        <DependentUpon>EntityExtensionsCodeGen.tt</DependentUpon>
+      </Compile>
     </ItemGroup>
 
 </Project>

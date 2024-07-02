@@ -1,16 +1,21 @@
+using System.Buffers;
 using System.Collections;
 using SixLabors.ImageSharp.PixelFormats;
 using TheAvaloniaOpenGL.Resources;
 using TheEngine;
 using TheEngine.Components;
+using TheEngine.Data;
 using TheEngine.ECS;
 using TheEngine.Entities;
 using TheEngine.Handles;
 using TheEngine.Interfaces;
 using TheEngine.Managers;
+using TheEngine.PhysicsSystem;
 using TheMaths;
+using WDE.MapRenderer.Managers.Entities;
 using WDE.MapRenderer.StaticData;
 using WDE.MpqReader;
+using WDE.MpqReader.DBC;
 using WDE.MpqReader.Readers;
 using WDE.MpqReader.Structures;
 
@@ -26,20 +31,24 @@ namespace WDE.MapRenderer.Managers
         public NativeBuffer<Vector4>? heightsNormalBuffer;
         public float[,] heights;
         public Material? material;
+        public bool terrainLoaded;
         public CancellationTokenSource? loading = new CancellationTokenSource();
         public uint[,] areaIds = new uint[16,16];
         public Task? chunkLoading;
 
+        public Entity terrainEntity;
         public List<StaticRenderHandle> renderHandles = new();
         public List<Entity> entities = new();
-
+        public List<IMesh> meshes = new();
+        public List<NativeBuffer<Matrix>> animationBuffers = new();
+        
         public ChunkInstance(int x, int z)
         {
             X = x;
             Z = z;
         }
 
-        public Vector3 MiddlePoint => ((X, Z).ChunkToWoWPosition() - new Vector3(Constants.BlockSize / 2, Constants.BlockSize / 2, 0)).ToOpenGlPosition();
+        public Vector3 MiddlePoint => ((X, Z).ChunkToWoWPosition() - new Vector3(Constants.BlockSize / 2, Constants.BlockSize / 2, 0));
 
         public void Dispose(ITextureManager textureManager)
         {
@@ -47,6 +56,9 @@ namespace WDE.MapRenderer.Managers
             textureManager.DisposeTexture(splatMapTex);
             textureManager.DisposeTexture(holesMapTex);
             heightsNormalBuffer?.Dispose();
+            foreach (var buffer in animationBuffers)
+                buffer.Dispose();
+            animationBuffers.Clear();
         }
 
         public uint GetAreaId(Vector3 wowPosition)
@@ -73,17 +85,18 @@ namespace WDE.MapRenderer.Managers
         private readonly IRenderManager renderManager;
         private readonly MdxManager mdxManager;
         private readonly WmoManager wmoManager;
+        private readonly WorldManager worldManager;
         private readonly Lazy<LoadingManager> loadingManager;
+        private readonly ModuleManager moduleManager;
+        private readonly RaycastSystem raycastSystem;
+        private readonly DbcManager dbcManager;
         private readonly Engine engine;
         private readonly IGameContext gameContext;
+        private readonly Archetypes archetypes;
         private HashSet<(int, int)> loadedChunks = new();
         private List<ChunkInstance> chunks = new();
         private Dictionary<(int, int), ChunkInstance> chunksXY = new();
 
-        private Archetype collisionOnlyArchetype;
-        private Archetype renderEntityArchetype;
-        private Archetype terrainEntityArchetype;
-        
         private bool renderGrid;
         private bool RenderGrid
         {
@@ -99,6 +112,21 @@ namespace WDE.MapRenderer.Managers
             }
         }
 
+        private bool renderTerrain = true;
+        public bool RenderTerrain
+        {
+            get => renderTerrain;
+            set
+            {
+                if (renderTerrain == value)
+                    return;
+                renderTerrain = value;
+                foreach (var chunk in chunks)
+                    if (chunk.terrainEntity != Entity.Empty)
+                        chunk.terrainEntity.SetForceDisabledRendering(entityManager, !value);
+            }
+        }
+
         private void PosToChunkHeightCoords(Vector3 wowPosition, out (int, int) chunk, out int xIndex, out int yIndex)
         {
             chunk = wowPosition.WoWPositionToChunk();
@@ -111,7 +139,37 @@ namespace WDE.MapRenderer.Managers
             yIndex = Math.Clamp((int)(yInt / 533.0 * maxIndex), 0, maxIndex);
         }
         
-        public float? HeightAtPosition(float x, float y)
+        private List<(Entity, Vector3)> outRaycast = new();
+        public float? HeightAtPosition(float x, float y, float? closestToZ)
+        {
+            var origin = new Vector3(x, y, closestToZ ?? 4000);
+            raycastSystem.RaycastAll(new Ray(origin.WithZ(4000), Vectors.Down), origin, outRaycast, Collisions.COLLISION_MASK_STATIC);
+            if (outRaycast.Count > 0)
+            {
+                float minDiff = float.MaxValue;
+                float bestHeight = 0;
+                for (int i = 0; i < outRaycast.Count; ++i)
+                {
+                    var diff = Math.Abs(outRaycast[i].Item2.Z - origin.Z);
+                    if (diff < minDiff)
+                    {
+                        minDiff = diff;
+                        bestHeight = outRaycast[i].Item2.Z;
+                    }
+                }
+                outRaycast.Clear();
+                return bestHeight;
+            }
+
+            return null;
+
+            // var ret = raycastSystem.Raycast(new Ray(new Vector3(x, y, 4000), Vector3.Down), null, false, Collisions.COLLISION_MASK_STATIC);
+            // if (ret.HasValue)
+            //     return ret.Value.Item2.Z;
+            // return null;
+        }
+        
+        private float? FastHeightAtPosition(float x, float y)
         {
             Vector3 wowPos = new Vector3(x, y, 0);
             PosToChunkHeightCoords(wowPos, out var chunk, out int xIndex, out int yIndex);
@@ -134,8 +192,13 @@ namespace WDE.MapRenderer.Managers
             IRenderManager renderManager,
             MdxManager mdxManager,
             WmoManager wmoManager,
+            WorldManager worldManager,
             IGameContext gameContext,
+            Archetypes archetypes,
             Lazy<LoadingManager> loadingManager,
+            ModuleManager moduleManager,
+            RaycastSystem raycastSystem,
+            DbcManager dbcManager,
             Engine engine)
         {
             this.entityManager = entityManager;
@@ -150,31 +213,21 @@ namespace WDE.MapRenderer.Managers
             this.renderManager = renderManager;
             this.mdxManager = mdxManager;
             this.wmoManager = wmoManager;
+            this.worldManager = worldManager;
             this.gameContext = gameContext;
+            this.archetypes = archetypes;
             this.loadingManager = loadingManager;
+            this.moduleManager = moduleManager;
+            this.raycastSystem = raycastSystem;
+            this.dbcManager = dbcManager;
             this.engine = engine;
-            collisionOnlyArchetype = entityManager.NewArchetype()
-                .WithComponentData<LocalToWorld>()
-                .WithComponentData<Collider>()
-                .WithComponentData<WorldMeshBounds>()
-                .WithComponentData<MeshRenderer>();
-            terrainEntityArchetype = entityManager.NewArchetype()
-                .WithComponentData<RenderEnabledBit>()
-                .WithComponentData<LocalToWorld>()
-                .WithComponentData<WorldMeshBounds>()
-                .WithComponentData<MeshRenderer>();
-            renderEntityArchetype = entityManager.NewArchetype()
-                .WithComponentData<RenderEnabledBit>()
-                .WithComponentData<LocalToWorld>()
-                .WithComponentData<MeshBounds>()
-                .WithComponentData<DirtyPosition>()
-//                .WithComponentData<Collider>()
-                .WithComponentData<WorldMeshBounds>()
-                .WithComponentData<MeshRenderer>();
         }
 
         public IEnumerator LoadChunk(int y, int x, bool now)
         {
+            if (y < 0 || y >= 64 || x < 0 || x >= 64)
+                yield break;
+            
             if (!loadedChunks.Add((y, x)))
                 yield break;
             
@@ -185,12 +238,24 @@ namespace WDE.MapRenderer.Managers
             chunks.Add(chunk);
             chunksXY[(y, x)] = chunk;
 
+            var WDTflag = worldManager.CurrentWdt?.Header.flags;
+
             var fullName = gameFiles.Adt(gameContext.CurrentMap.Directory, x, y);
+            var fullNameTex0 = gameFiles.AdtTex0(gameContext.CurrentMap.Directory, x, y);
+            var fullNameObj0 = gameFiles.AdtObj0(gameContext.CurrentMap.Directory, x, y);
+            var fullNameLod = gameFiles.AdtLod0(gameContext.CurrentMap.Directory, x, y);
             var file = gameFiles.ReadFile(fullName);
+            var fileTex0 = gameFiles.ReadFile(fullNameTex0, true);
+            var fileObj0 = gameFiles.ReadFile(fullNameObj0, true);
+            var fileLod = gameFiles.ReadFile(fullNameLod, true);
             yield return file;
+            yield return fileTex0;
+            yield return fileObj0;
+            yield return fileLod;
             if (file.Result == null)
             {
                 tasksource.SetResult();
+                yield return LoadModules(chunk, cancelationToken);
                 chunk.loading = null;
                 yield break;
             }
@@ -213,7 +278,11 @@ namespace WDE.MapRenderer.Managers
 
                 try
                 {
-                    adt = new ADT(new MemoryBinaryReader(file.Result));
+                    adt = new ADT( gameFiles.WoWVersion, new MemoryBinaryReader(file.Result), 
+                        fileTex0.Result == null ? null : new MemoryBinaryReader(fileTex0.Result),
+                        fileObj0.Result == null ? null : new MemoryBinaryReader(fileObj0.Result),
+                        fileLod.Result == null ? null : new MemoryBinaryReader(fileLod.Result), WDTflag,
+                        dbcManager.LiquidObjectStore, dbcManager.LiquidTypeStore, dbcManager.LiquidMaterialStore);
                 }
                 catch (Exception e)
                 {
@@ -224,12 +293,15 @@ namespace WDE.MapRenderer.Managers
                 }
             });
             file.Result.Dispose();
+            fileTex0.Result?.Dispose();
+            fileObj0.Result?.Dispose();
+            fileLod.Result?.Dispose();
 
             if (adt == null)
                 yield break;
             
             float minHeight = float.MaxValue;
-            float maxHeight = float.MaxValue;
+            float maxHeight = float.MinValue;
             int k = 0;
             int k2 = 0;
             using var chunksEnumerator2 = ((IEnumerable<AdtChunk>)adt.Chunks).GetEnumerator();
@@ -247,7 +319,7 @@ namespace WDE.MapRenderer.Managers
                     chunk.areaIds[i, j] = chunksEnumerator2.Current.AreaId;
                     var basePos = chunksEnumerator2.Current.BasePosition;
                     int k_ = 0;
-                    Vector3[] subVertices = new Vector3[145];
+                    var subVertices = ArrayPool<Vector3>.Shared.Rent(145);
                     for (int cy = 0; cy < 17; ++cy)
                     {
                         for (int cx = 0; cx < (cy % 2 == 0 ? 9 : 8); cx++)
@@ -262,60 +334,65 @@ namespace WDE.MapRenderer.Managers
                                 VERTX = (Constants.ChunkSize / 8) * 7 * (cx / 7.0f) + Constants.ChunkSize / 8 / 2;
                             }
                             float VERTY = cy / 16.0f * Constants.ChunkSize;
-                            var vert = new Vector3(-VERTX, chunksEnumerator2.Current.Heights[k_], VERTY) + basePos.ToOpenGlPosition();
+                            var vert = new Vector3(-VERTY, -VERTX, chunksEnumerator2.Current.Heights[k_]) + basePos;
                             subVertices[k_] = vert;
 
                             if (cy % 2 == 0) // inner row, 8 verts
                             {
                                 int yIndex2 = (15 - j) * 9 + 8 - cx;
                                 int xIndex2 =  (15 - i) * 9 + 8 - cy/2;
-                                chunk.heights[xIndex2, yIndex2] = vert.Y;
+                                chunk.heights[xIndex2, yIndex2] = vert.Z;
                             }
-                            vert.Y.MinMax(ref minHeight, ref maxHeight);
+                            vert.Z.MinMax(ref minHeight, ref maxHeight);
                             
                             var norm = chunksEnumerator2.Current.Normals[k_];
                             heightsNormal[k++] = new Vector4(
-                                norm.Z,
+                                norm.X,
                                 norm.Y,
-                                -norm.X,
-                                chunksEnumerator2.Current.Heights[k_] +
-                                basePos.Z
+                                norm.Z,
+                                chunksEnumerator2.Current.Heights[k_] + basePos.Z
                             );
                             k_++;
                         }
                     }
 
-                    int[] indices = new int[4 * 8 * 8 * 3];
+                    ushort[] indices = ArrayPool<ushort>.Shared.Rent(4 * 8 * 8 * 4);
                     int k__ = 0;
-                    for (int cx = 0; cx < 8; cx++)
+                    for (uint cx = 0; cx < 8; cx++)
                     {
-                        for (int cy = 0; cy < 8; cy++)
+                        for (uint cy = 0; cy < 8; cy++)
                         {
-                            int tl = cy * 17 + cx;
-                            int tr = tl + 1;
-                            int middle = tl + 9;
-                            int bl = middle + 8;
-                            int br = bl + 1;
+                            uint tl = cy * 17 + cx;
+                            uint tr = tl + 1;
+                            uint middle = tl + 9;
+                            uint bl = middle + 8;
+                            uint br = bl + 1;
 
-                            indices[k__++] = tl;
-                            indices[k__++] = middle;
-                            indices[k__++] = tr;
+                            if (br > ushort.MaxValue)
+                                throw new Exception("Too many vertices");
+
+                            indices[k__++] = (ushort)tl;
+                            indices[k__++] = (ushort)middle;
+                            indices[k__++] = (ushort)tr;
                             //
-                            indices[k__++] = tl;
-                            indices[k__++] = bl;
-                            indices[k__++] = middle;
+                            indices[k__++] = (ushort)tl;
+                            indices[k__++] = (ushort)bl;
+                            indices[k__++] = (ushort)middle;
                             //
-                            indices[k__++] = tr;
-                            indices[k__++] = middle;
-                            indices[k__++] = br;
+                            indices[k__++] = (ushort)tr;
+                            indices[k__++] = (ushort)middle;
+                            indices[k__++] = (ushort)br;
                             //
-                            indices[k__++] = middle;
-                            indices[k__++] = bl;
-                            indices[k__++] = br;
+                            indices[k__++] = (ushort)middle;
+                            indices[k__++] = (ushort)bl;
+                            indices[k__++] = (ushort)br;
                         }
                     }
-                    var subChunkMesh = meshManager.CreateManagedOnlyMesh(subVertices, indices);
-                    var entity = entityManager.CreateEntity(collisionOnlyArchetype);
+                    var subChunkMesh = meshManager.CreateManagedOnlyMesh(subVertices.AsSpan(0, 145), indices.AsSpan(0, 4 * 8 * 8 * 4));
+                    ArrayPool<Vector3>.Shared.Return(subVertices);
+                    ArrayPool<ushort>.Shared.Return(indices);
+                    var entity = entityManager.CreateEntity(archetypes.CollisionOnlyArchetype);
+                    entityManager.GetComponent<Collider>(entity).CollisionMask = Collisions.COLLISION_MASK_TERRAIN;
                     entityManager.GetComponent<LocalToWorld>(entity).Matrix = Matrix.Identity;
                     entityManager.GetComponent<MeshRenderer>(entity).SubMeshId = 0;
                     entityManager.GetComponent<MeshRenderer>(entity).MeshHandle = subChunkMesh.Handle;
@@ -337,7 +414,7 @@ namespace WDE.MapRenderer.Managers
                 
                     int _i = 0;
                     var sm = chunksEnumerator2.Current.SplatMap;
-                    var len = sm.GetLength(2);
+                    var len = sm?.GetLength(2) ?? 0;
                     for (int _x = 0; _x < 64; ++_x)
                     {
                         for (int _y = 0; _y < 64; ++_y)
@@ -375,8 +452,7 @@ namespace WDE.MapRenderer.Managers
             chunksEnumerator.MoveNext();
             var chunkMesh = woWMeshManager.MeshOfChunk;
             var t = new Transform();
-            t.Position = new Vector3(chunksEnumerator.Current.BasePosition.Y, 0,
-                -chunksEnumerator.Current.BasePosition.X);
+            t.Position = new Vector3(chunksEnumerator.Current.BasePosition.X, chunksEnumerator.Current.BasePosition.Y, 0);
             t.Scale = new Vector3(1);
             chunkMesh.Activate();
         
@@ -453,18 +529,106 @@ namespace WDE.MapRenderer.Managers
 
             //chunk.terrainHandle = renderManager.RegisterDynamicRenderer(chunkMesh.Handle, material, 0, t);
             
-            var terrainEntity = entityManager.CreateEntity(terrainEntityArchetype);
+            var terrainEntity = entityManager.CreateEntity(archetypes.TerrainEntityArchetype);
             entityManager.GetComponent<LocalToWorld>(terrainEntity).Matrix = t.LocalToWorldMatrix;
             entityManager.GetComponent<MeshRenderer>(terrainEntity).SubMeshId = 0;
             entityManager.GetComponent<MeshRenderer>(terrainEntity).MaterialHandle = material.Handle;
             entityManager.GetComponent<MeshRenderer>(terrainEntity).MeshHandle = chunkMesh.Handle; 
             entityManager.GetComponent<MeshRenderer>(terrainEntity).Opaque = !material.BlendingEnabled; 
             var localBounds = new BoundingBox(
-                new Vector3(chunkMesh.Bounds.Minimum.X, minHeight, chunkMesh.Bounds.Minimum.Z),
-                new Vector3(chunkMesh.Bounds.Maximum.X, maxHeight, chunkMesh.Bounds.Maximum.Z));
+                new Vector3(chunkMesh.Bounds.Minimum.X, chunkMesh.Bounds.Minimum.Y, minHeight),
+                new Vector3(chunkMesh.Bounds.Maximum.X, chunkMesh.Bounds.Maximum.Y, maxHeight));
             entityManager.GetComponent<WorldMeshBounds>(terrainEntity) = RenderManager.LocalToWorld((MeshBounds)localBounds, new LocalToWorld() { Matrix = t.LocalToWorldMatrix });
+            terrainEntity.SetForceDisabledRendering(entityManager, !RenderTerrain);
+            chunk.terrainEntity = terrainEntity;
             chunk.entities.Add(terrainEntity);
-            
+            chunk.terrainLoaded = true;
+
+            // water here
+            if (adt.HasLiquid)
+            {
+                float adtposx = t.Position.X;
+                float adtposy = t.Position.Y;
+
+                bool allWaterLayersHaveEqualSize = true;
+                float? waterHeight = null;
+
+                for (int chunkY = 0; chunkY < Constants.ChunksInBlockY; ++chunkY) // for each subchunk
+                {
+                    for (int chunkX = 0; chunkX < Constants.ChunksInBlockX; ++chunkX)
+                    {
+                        var liquidChunk = adt.MH2OLiquidChunks[chunkY * Constants.ChunksInBlockX + chunkX];
+                        if (liquidChunk.LayerCount != 1 ||
+                            !liquidChunk.LiquidInstances![0].IsSingleHeight ||
+                            (waterHeight.HasValue &&
+                            Math.Abs(liquidChunk.LiquidInstances[0].MinHeightLevel - waterHeight.Value) > float.Epsilon))
+                        {
+                            allWaterLayersHaveEqualSize = false;
+                            break;
+                        }
+
+                        waterHeight = liquidChunk.LiquidInstances[0].MinHeightLevel;
+                    }
+                }
+                
+                IMesh waterMesh;
+                Vector3 meshPosition = Vector3.Zero;
+                if (allWaterLayersHaveEqualSize)
+                {
+                    var merged = woWMeshManager.GenerateGiganticWaterMesh(waterHeight!.Value);
+                    waterMesh = meshManager.CreateMesh(merged.Item1, merged.Item2);
+                    meshPosition = new Vector3(adtposx, adtposy, 0);
+                }
+                else
+                {
+                    List<Vector3[]> verticesSet = new List<Vector3[]>();
+                    List<ushort[]> indicesSet = new List<ushort[]>();
+                    List<Vector3> offsets = new List<Vector3>();
+                    
+                    for (int chunkY = 0; chunkY < Constants.ChunksInBlockY; ++chunkY) // for each subchunk
+                    {
+                        for (int chunkX = 0; chunkX < Constants.ChunksInBlockX; ++chunkX)
+                        {
+                            var liquidChunk = adt.MH2OLiquidChunks[chunkY * Constants.ChunksInBlockX + chunkX];
+                            var chunkposx = adtposx - ( (chunkY) * Constants.ChunkSize);
+                            var chunkposy = adtposy - ( (chunkX) * Constants.ChunkSize);
+                        
+                            if (liquidChunk.LiquidInstances == null)
+                                continue;
+
+                            for (var index = 0; index < liquidChunk.LiquidInstances.Length; index++)
+                            {
+                                var (vertices, indices) = woWMeshManager.GenerateWaterMesh(ref liquidChunk.LiquidInstances[index]);
+                                verticesSet.Add(vertices);
+                                indicesSet.Add(indices);
+                                offsets.Add(new Vector3(chunkposx, chunkposy, 0));
+                            }
+                        }
+                    }
+                    var merged = MeshBatcher.MergeMeshes(verticesSet, indicesSet, offsets);
+                    waterMesh = meshManager.CreateMesh(merged.Item1, merged.Item2);
+                }
+
+                var trsMatrix = Utilities.TRS(meshPosition, Quaternion.Identity, Vectors.One);
+                var waterEntity = entityManager.CreateEntity(archetypes.TerrainEntityArchetype);
+                entityManager.GetComponent<LocalToWorld>(waterEntity).Matrix = trsMatrix;
+                            
+                entityManager.GetComponent<MeshRenderer>(waterEntity).SubMeshId = 0;
+                entityManager.GetComponent<MeshRenderer>(waterEntity).MaterialHandle = woWMeshManager.WaterMaterial.Handle;
+                entityManager.GetComponent<MeshRenderer>(waterEntity).MeshHandle = waterMesh.Handle;
+                entityManager.GetComponent<MeshRenderer>(waterEntity).Opaque = false;
+                localBounds = waterMesh.Bounds;
+                localBounds = localBounds.WithSize(localBounds.Size with { Z = Math.Max(localBounds.Size.Z, 10) });
+                var worldBounds = RenderManager.LocalToWorld((MeshBounds)localBounds, new LocalToWorld() { Matrix = trsMatrix });
+                entityManager.GetComponent<WorldMeshBounds>(waterEntity) = worldBounds;
+
+                chunk.entities.Add(waterEntity);
+                chunk.meshes.Add(waterMesh);
+            }
+
+
+            /////////////
+
             if (cancelationToken.IsCancellationRequested)
             {
                 tasksource.SetResult();
@@ -473,9 +637,21 @@ namespace WDE.MapRenderer.Managers
             }
             
             yield return LoadObjects(adt, chunk, cancelationToken);
+
+            yield return LoadModules(chunk, cancelationToken);
             
             tasksource.SetResult();
             chunk.loading = null; 
+        }
+
+        private IEnumerator LoadModules(ChunkInstance chunk, CancellationToken cancellationToken)
+        {
+            IEnumerator LoadModuleChunk(IGameModule arg)
+            {
+                yield return arg.LoadChunk(gameContext.CurrentMap.Id, chunk.X, chunk.Z, cancellationToken);
+            }
+            
+            yield return moduleManager.ForEach(LoadModuleChunk);
         }
 
         private IEnumerator LoadObjects(ADT adt, ChunkInstance chunk, CancellationToken cancellationToken)
@@ -504,24 +680,46 @@ namespace WDE.MapRenderer.Managers
                 var m = result.Task.Result;
 
                 var t = new Transform();
-                t.Position = new Vector3(32 * Constants.BlockSize - m2.AbsolutePosition.X, m2.AbsolutePosition.Y, -(32 * Constants.BlockSize - m2.AbsolutePosition.Z));
+                t.Position = new Vector3(32 * Constants.BlockSize - m2.AbsolutePosition.Z, (32 * Constants.BlockSize - m2.AbsolutePosition.X), m2.AbsolutePosition.Y);
                 t.Scale = Vector3.One * m2.Scale;
-                t.Rotation = Quaternion.FromEuler(m2.Rotation.X, -m2.Rotation.Y + 180, m2.Rotation.Z);
+                t.Rotation = Utilities.FromEuler(m2.Rotation.X, m2.Rotation.Y + 180,  m2.Rotation.Z);
 
-                int j = 0;
+                Entity entity;
+                NativeBuffer<Matrix>? bones = null;
+                if (m.HasAnimations)
+                {
+                    bones = engine.CreateBuffer<Matrix>(BufferTypeEnum.StructuredBuffer, 1, BufferInternalFormat.Float4);
+                    bones.UpdateBuffer(AnimationSystem.IdentityBones(m.model.bones.Length).Span);
+                    chunk.animationBuffers.Add(bones);
+                }
+
+                bool first = true;
+
                 foreach (var material in m.materials)
                 {
-                    //
-                    // var entity = entityManager.CreateEntity(renderEntityArchetype);
-                    // entityManager.GetComponent<LocalToWorld>(entity).Matrix = t.LocalToWorldMatrix;
-                    // entityManager.GetComponent<MeshRenderer>(entity).SubMeshId = j++;
-                    // entityManager.GetComponent<MeshRenderer>(entity).MaterialHandle = material.Handle;
-                    // entityManager.GetComponent<MeshRenderer>(entity).MeshHandle = m.mesh.Handle;
-                    // entityManager.GetComponent<MeshBounds>(entity) = (MeshBounds)m.mesh.Bounds;
-                    // entityManager.GetComponent<DirtyPosition>(entity).Enable();
-                    // chunk.objectHandles2.Add(entity);
-                    //
-                    chunk.renderHandles.Add(renderManager.RegisterStaticRenderer(m.mesh.Handle, material, j++, t));
+                    if (m.HasAnimations)
+                    {
+                        entity = entityManager.CreateEntity(first ? archetypes.StaticM2WorldObjectAnimatedMasterArchetype : archetypes.StaticM2WorldObjectAnimatedArchetype);
+                        // only one renderer has to update the animation, because the animation is the same among all renderers
+                        if (first)
+                        {
+                            entityManager.SetManagedComponent(entity, new M2AnimationComponentData(m.model)
+                            {
+                                SetNewAnimation = 0,
+                                _buffer = bones!
+                            });
+                        }
+                        var instanceRenderer = new MaterialInstanceRenderData();
+                        instanceRenderer.SetBuffer(material.material, "boneMatrices", bones!);
+                        entityManager.SetManagedComponent(entity, instanceRenderer);
+                    }
+                    else
+                        entity = entityManager.CreateEntity(archetypes.StaticM2WorldObjectArchetype);
+                    
+                    renderManager.SetupRendererEntity(entity, m.mesh.Handle, material.material, material.submesh, t.LocalToWorldMatrix);
+                    
+                    chunk.entities.Add(entity);
+                    first = false;
                 }
 
                 index++;
@@ -541,10 +739,8 @@ namespace WDE.MapRenderer.Managers
                     yield break;
                 
                 var wmoTransform = new Transform();
-                wmoTransform.Position = new Vector3((32 * Constants.BlockSize - wmoReference.AbsolutePosition.X),
-                    wmoReference.AbsolutePosition.Y, -(32 * Constants.BlockSize - wmoReference.AbsolutePosition.Z));
-                wmoTransform.Rotation = Quaternion.FromEuler(wmoReference.Rotation.X, -wmoReference.Rotation.Y + 180,
-                    wmoReference.Rotation.Z);
+                wmoTransform.Position = new Vector3((32 * Constants.BlockSize - wmoReference.AbsolutePosition.Z), (32 * Constants.BlockSize - wmoReference.AbsolutePosition.X), wmoReference.AbsolutePosition.Y);
+                wmoTransform.Rotation = Utilities.FromEuler(wmoReference.Rotation.X,  wmoReference.Rotation.Y + 180, wmoReference.Rotation.Z);
 
                 var tcs = new TaskCompletionSource<WmoManager.WmoInstance?>();
                 yield return wmoManager.LoadWorldMapObject(wmoReference.WmoPath, tcs);
@@ -560,8 +756,9 @@ namespace WDE.MapRenderer.Managers
 
                         if (!material.BlendingEnabled)
                         {
-                            var entity = entityManager.CreateEntity(collisionOnlyArchetype);
+                            var entity = entityManager.CreateEntity(archetypes.CollisionOnlyArchetype);
                             entityManager.GetComponent<LocalToWorld>(entity).Matrix = wmoTransform.LocalToWorldMatrix;
+                            entityManager.GetComponent<Collider>(entity).CollisionMask = Collisions.COLLISION_MASK_WMO;
                             entityManager.GetComponent<MeshRenderer>(entity).SubMeshId = i - 1;
                             entityManager.GetComponent<MeshRenderer>(entity).MeshHandle = mesh.Item1.Handle;
                             entityManager.GetComponent<WorldMeshBounds>(entity) = RenderManager.LocalToWorld((MeshBounds)mesh.Item1.Bounds, new LocalToWorld() { Matrix = wmoTransform.LocalToWorldMatrix });   
@@ -587,7 +784,7 @@ namespace WDE.MapRenderer.Managers
         {
             if (loadingManager.Value.EssentialLoadingInProgress)
                 return;
-
+            
             RenderGrid = gameProperties.ShowGrid;
             
             int D = 1;
@@ -608,7 +805,7 @@ namespace WDE.MapRenderer.Managers
             {
                 var c = chunks[index];
                 var midPoint = new Vector2(c.MiddlePoint.X, c.MiddlePoint.Z);
-                if ((midPoint - camera).LengthSquared() > 7500 * 7500)
+                if ((midPoint - camera).LengthSquared() > 5500 * 5500)
                 {
                     chunksXY.Remove((c.X, c.Z));
                     loadedChunks.Remove((c.X, c.Z));
@@ -626,11 +823,26 @@ namespace WDE.MapRenderer.Managers
                 yield return chunk.chunkLoading;
             }
             
+            IEnumerator UnloadModuleChunk(IGameModule arg)
+            {
+                yield return arg.UnloadChunk(chunk.X, chunk.Z);
+            }
+            
+            yield return moduleManager.ForEach(UnloadModuleChunk);
+            
+            chunk.terrainEntity = Entity.Empty;
             foreach (var obj in chunk.renderHandles)
                 renderManager.UnregisterStaticRenderer(obj);
             foreach (var entity in chunk.entities)
                 entityManager.DestroyEntity(entity);
+            foreach (var buffer in chunk.animationBuffers)
+                buffer.Dispose();
             
+            foreach (var obj in chunk.meshes)
+                meshManager.DisposeMesh(obj);
+                
+            chunk.animationBuffers.Clear();
+
             chunk.Dispose(textureManager);
         }
 
@@ -642,6 +854,16 @@ namespace WDE.MapRenderer.Managers
             chunksXY.Clear();
             foreach (var chunk in chunksCopy)
                 yield return UnloadChunk(chunk);
+        }
+
+        public bool IsLoaded(int y, int x)
+        {
+            return loadedChunks.Contains((y, x));
+        }
+
+        public bool IsTerrainLoaded(int y, int x)
+        {
+            return chunksXY.TryGetValue((y, x), out var chunk) && chunk.terrainLoaded;
         }
     }
 }

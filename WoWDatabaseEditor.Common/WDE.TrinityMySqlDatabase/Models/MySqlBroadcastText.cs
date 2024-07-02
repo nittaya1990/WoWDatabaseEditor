@@ -36,7 +36,11 @@ namespace WDE.TrinityMySqlDatabase.Models
         
         [Column(Name = "EmoteDelay3")]
         public uint EmoteDelay3 { get; set; }
+
+        public uint Sound1 { get; set; }
         
+        public uint Sound2 { get; set; }
+
         [Column(Name = "SoundEntriesID")]
         public uint SoundEntriesId { get; set; }
         
@@ -54,7 +58,7 @@ namespace WDE.TrinityMySqlDatabase.Models
         [Column(Name = "ID")]
         public uint Id { get; set;}
         
-        [Column(Name = "Language")]
+        [Column(Name = "LanguageId")]
         public uint Language { get; set;}
 
         [Column(Name = "MaleText")]
@@ -63,31 +67,35 @@ namespace WDE.TrinityMySqlDatabase.Models
         [Column(Name = "FemaleText")]
         public string? Text1 { get; set; }
         
-        [Column(Name = "EmoteID0")]
+        [Column(Name = "EmoteID1")]
         public uint EmoteId1  { get; set; }
         
-        [Column(Name = "EmoteID1")]
+        [Column(Name = "EmoteID2")]
         public uint EmoteId2 { get; set; }
         
-        [Column(Name = "EmoteID2")]
+        [Column(Name = "EmoteID3")]
         public uint EmoteId3 { get; set; }
         
-        [Column(Name = "EmoteDelay0")]
+        [Column(Name = "EmoteDelay1")]
         public uint EmoteDelay1 { get; set; }
         
-        [Column(Name = "EmoteDelay1")]
+        [Column(Name = "EmoteDelay2")]
         public uint EmoteDelay2 { get; set; }
         
-        [Column(Name = "EmoteDelay2")]
+        [Column(Name = "EmoteDelay3")]
         public uint EmoteDelay3 { get; set; }
-        
-        [Column(Name = "SoundId")]
+
+        public uint Sound1 { get; set; }
+
+        public uint Sound2 { get; set; }
+
+        [Column(Name = "SoundEntriesId")]
         public uint SoundEntriesId { get; set; }
         
-        [Column(Name = "Unk1")]
+        [Column(Name = "EmotesID")]
         public uint EmotesId { get; set; }
         
-        [Column(Name = "Unk2")]
+        [Column(Name = "Flags")]
         public uint Flags { get; set; }
     }
 }

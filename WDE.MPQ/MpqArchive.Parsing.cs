@@ -58,7 +58,8 @@ namespace WDE.MPQ
             if (!ArchiveHeader.IsMagicValid)
                 throw new MpqParsingException("Invalid MPQ header, this is probably not an MPQ archive. (Invalid magic)");
 
-            if ((ArchiveHeader.FormatVersion == 1 && ArchiveHeader.HeaderSize != 0x2c)
+            if ((ArchiveHeader.FormatVersion == 0 && ArchiveHeader.HeaderSize != 0x20)
+                || (ArchiveHeader.FormatVersion == 1 && ArchiveHeader.HeaderSize != 0x2c)
                 || (ArchiveHeader.FormatVersion == 3 && ArchiveHeader.HeaderSize != 0xD0))
             {
                 throw new MpqParsingException(
@@ -67,11 +68,15 @@ namespace WDE.MPQ
                         ArchiveHeader.FormatVersion, ArchiveHeader.HeaderSize));
             }
 
-            if (ArchiveHeader.FormatVersion != 1 && ArchiveHeader.FormatVersion != 3)
-                throw new MpqParsingException("Invalid MPQ format. Must be '1' or '3'.");
+            if (ArchiveHeader.FormatVersion != 0 && ArchiveHeader.FormatVersion != 1 && ArchiveHeader.FormatVersion != 3)
+                throw new MpqParsingException("Invalid MPQ format. Must be '0', '1' or '3'.");
+
+            // Currently ExtendedBlockTableOffset is not used. Format 1+ only
+            if (ArchiveHeader.FormatVersion > 0 && ArchiveHeader.ExtendedBlockTableOffset > 0)
+                throw new MpqParsingException("MPQ uses extended table, this is currently not supported, report this to the developers.");
         }
 
-        private IEnumerable<T> ReadTableEntires<T>(string name, uint tableOffset, uint numberOfEntries)
+        private IEnumerable<T> ReadTableEntries<T>(string name, uint tableOffset, uint numberOfEntries)
         {
             SeekToArchiveOffset(tableOffset);
 
@@ -119,7 +124,7 @@ namespace WDE.MPQ
         }
 
         // todos: support more decompression algorithms?
-        public int? ReadFile(byte[] buffer, string path)
+        public int? ReadFile(byte[] buffer, int size, string path)
         {
             if (path == null) throw new ArgumentNullException("path");
 
@@ -211,7 +216,7 @@ namespace WDE.MPQ
                 var sectorData = _reader.Read(tempBuffer, 0, length);
                 Debug.Assert(sectorData == length);
 
-                if (blockEntry.IsCompressed && left > length)
+                if (blockEntry.IsCompressed && left > length && decompressedLength != SectorSize)
                 {
                     var compressionFlags = (CompressionFlags) tempBuffer[0];
                     
@@ -241,6 +246,7 @@ namespace WDE.MPQ
                 left -= decompressedLength;
             }
 
+            Debug.Assert(left == 0);
             return (int)blockEntry.FileSize;
         }
 
@@ -251,7 +257,7 @@ namespace WDE.MPQ
                 return new List<string>();
 
             var listfile = new byte[listfileSize.Value];
-            ReadFile(listfile, "(listfile)");
+            ReadFile(listfile, -1, "(listfile)");
             
             var contents = Encoding.UTF8.GetString(listfile);
             var entries = contents.Split(new[] {';', '\r', '\n'}, StringSplitOptions.RemoveEmptyEntries);

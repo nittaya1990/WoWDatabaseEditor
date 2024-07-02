@@ -2,14 +2,22 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Windows.Input;
+using AsyncAwaitBestPractices.MVVM;
 using Prism.Commands;
 using Prism.Events;
+using PropertyChanged.SourceGenerator;
+using ReactiveUI;
+using WDE.Common.CoreVersion;
 using WDE.Common.Events;
 using WDE.Common.Managers;
 using WDE.Common.Services.MessageBox;
 using WDE.Common.Windows;
 using WDE.Common.Menu;
+using WDE.Common.Providers;
+using WDE.Common.QuickAccess;
 using WDE.Common.Services;
+using WDE.Common.Services.Statistics;
 using WDE.Common.Sessions;
 using WDE.Common.Solution;
 using WDE.Common.Tasks;
@@ -20,21 +28,37 @@ using WDE.MVVM.Observable;
 using WoWDatabaseEditor.Providers;
 using WoWDatabaseEditorCore.Managers;
 using WoWDatabaseEditorCore.Services;
+using WoWDatabaseEditorCore.Services.FindAnywhere;
+using WoWDatabaseEditorCore.Services.Profiles;
+using WoWDatabaseEditorCore.Services.QuickAccess;
+using WoWDatabaseEditorCore.Services.Statistics;
 
 namespace WoWDatabaseEditorCore.ViewModels
 {
     [SingleInstance]
     [AutoRegister]
-    public class MainWindowViewModel : ObservableBase, ILayoutViewModelResolver, ICloseAwareViewModel
+    public partial class MainWindowViewModel : ObservableBase, ILayoutViewModelResolver, ICloseAwareViewModel
     {
+        private readonly IStatusBar statusBar;
         private readonly IMessageBoxService messageBoxService;
         private readonly Func<AboutViewModel> aboutViewModelCreator;
         private readonly Func<QuickStartViewModel> quickStartCreator;
         private readonly Func<TextDocumentViewModel> textDocumentCreator;
+        private readonly ISolutionTasksService solutionTasksService;
+        private readonly IProgramNameService programNameService;
+        private readonly List<IProgramNameAddon> programNameAddons;
+        private readonly ITablesToolService tablesToolService;
+        private readonly IGlobalServiceRoot globalServiceRoot;
+        private readonly ITeachingTipService teachingTipService;
+        private readonly IStatisticsService statisticsService;
+        private readonly IUpdateViewModel updateViewModel;
 
         private readonly Dictionary<string, ITool> toolById = new();
 
+        [Notify] private bool is3dViewSupported;
+
         public MainWindowViewModel(IDocumentManager documentManager,
+            StatusBarViewModel statusBarViewModel,
             IStatusBar statusBar,
             IMessageBoxService messageBoxService,
             TasksViewModel tasksViewModel,
@@ -51,42 +75,70 @@ namespace WoWDatabaseEditorCore.ViewModels
             ITaskRunner taskRunner,
             IEventAggregator eventAggregator,
             IProgramNameService programNameService,
-            IMainThread mainThread)
+            IEnumerable<IProgramNameAddon> nameAddons,
+            IMainThread mainThread,
+            IQuickAccessViewModel quickAccessViewModel,
+            IWindowManager windowManager,
+            ITablesToolService tablesToolService,
+            Lazy<IGameViewService> gameViewService,
+            Lazy<ISqlEditorService> sqlEditorService,
+            QuickGoToViewModel quickGoToViewModel,
+            ProfilesViewModel profilesViewModel,
+            IGlobalServiceRoot globalServiceRoot,
+            TopBarQuickAccessViewModel topBarQuickAccessViewModel,
+            SessionRestoreService sessionRestoreService,
+            IConnectionsStatusBarItem connectionsViewModel,
+            ITeachingTipService teachingTipService,
+            IStatisticsService statisticsService,
+            ICurrentCoreVersion currentCoreVersion,
+            IUpdateViewModel updateViewModel,
+            IVisualStudioManagerViewModel visualStudioManagerViewModel,
+            IEnumerable<IVersionedFilesViewModel> versionedFilesViewModel,
+            Func<IFindAnywhereDialogViewModel> findAnywhereCreator)
         {
             DocumentManager = documentManager;
-            StatusBar = statusBar;
+            StatusBar = statusBarViewModel;
+            TopBarQuickAccess = topBarQuickAccessViewModel;
+            SessionRestoreService = sessionRestoreService;
+            ConnectionsViewModel = connectionsViewModel;
+            VisualStudioManagerViewModel = visualStudioManagerViewModel;
+            VersionedFilesViewModel = versionedFilesViewModel.FirstOrDefault();
+            this.statusBar = statusBar;
             this.messageBoxService = messageBoxService;
             this.aboutViewModelCreator = aboutViewModelCreator;
             this.quickStartCreator = quickStartCreator;
             this.textDocumentCreator = textDocumentCreator;
-            Title = programNameService.Title;
+            this.solutionTasksService = solutionTasksService;
+            this.programNameService = programNameService;
+            this.tablesToolService = tablesToolService;
+            this.globalServiceRoot = globalServiceRoot;
+            this.teachingTipService = teachingTipService;
+            this.statisticsService = statisticsService;
+            this.updateViewModel = updateViewModel;
+            this.programNameAddons = nameAddons.ToList();
+            Title = "";
             Subtitle = programNameService.Subtitle;
+            ShowRelatedItems = !currentCoreVersion.Current.HideRelatedItems;
+            foreach (var titleAddon in programNameAddons)
+                titleAddon.ToObservable(x => x.Addon).SubscribeAction(_ => UpdateTitle());
+            UpdateTitle();
             OpenDocument = new DelegateCommand<IMenuDocumentItem>(ShowDocument);
             ExecuteChangedCommand = new DelegateCommand(() =>
             {
                 var item = DocumentManager.ActiveSolutionItemDocument?.SolutionItem;
                 if (item == null)
+                {
+                    if (DocumentManager.ActiveDocument is { } doc)
+                        doc.Save.Execute(null);
                     return;
-
-                if (DocumentManager.ActiveSolutionItemDocument!.Save?.CanExecute(null) ?? false)
-                {
-                    DocumentManager.ActiveSolutionItemDocument.Save.Execute(null);
-
-                    if (solutionTasksService.CanReloadRemotely)
-                        solutionTasksService.ReloadSolutionRemotelyTask(item);
                 }
-                else
-                {
-                    if (solutionTasksService.CanSaveAndReloadRemotely)
-                        solutionTasksService.SaveAndReloadSolutionTask(item);
-                    else if (solutionTasksService.CanSaveToDatabase)
-                        solutionTasksService.SaveSolutionToDatabaseTask(item);
-                }
-                
-                taskRunner.ScheduleTask("Update session", async () => await sessionService.UpdateQuery(item));
 
-            }, () => DocumentManager.ActiveSolutionItemDocument != null &&
-                     (solutionTasksService.CanSaveAndReloadRemotely || solutionTasksService.CanSaveToDatabase));
+                solutionTasksService.Save(DocumentManager.ActiveSolutionItemDocument!).ListenErrors(this.messageBoxService);
+            }, () => (DocumentManager.ActiveSolutionItemDocument != null &&
+                     (solutionTasksService.CanSaveAndReloadRemotely || solutionTasksService.CanSaveToDatabase)) ||
+                     (DocumentManager.ActiveDocument is {} doc && doc.Save.CanExecute(null)));
+            solutionTasksService.ToObservable(x => x.CanSaveAndReloadRemotely)
+                .SubscribeAction(_ => ExecuteChangedCommand.RaiseCanExecuteChanged());
 
             CopyCurrentSqlCommand = new AsyncAutoCommand(async () =>
             {
@@ -96,18 +148,33 @@ namespace WoWDatabaseEditorCore.ViewModels
                         async () =>
                         {
                             var sql = await queryGeneratorRegistry.GenerateSql(sid.SolutionItem);
-                            clipboardService.SetText(sql);
-                            statusBar.PublishNotification(new PlainNotification(NotificationType.Success, "SQL copied!"));
+                            clipboardService.SetText(sql.QueryString);
+                            this.statusBar.PublishNotification(new PlainNotification(NotificationType.Success, "SQL copied!"));
                         });
                 }
-            }, _ => DocumentManager.ActiveDocument != null && DocumentManager.ActiveDocument is ISolutionItemDocument);
+            }, () => DocumentManager.ActiveDocument != null && DocumentManager.ActiveDocument is ISolutionItemDocument);
             
             GenerateCurrentSqlCommand = new DelegateCommand(() =>
             {
                 if (DocumentManager.ActiveDocument is ISolutionItemDocument {SolutionItem: { }} sid)
                     solutionSqlService.OpenDocumentWithSqlFor(sid.SolutionItem);
             }, () => DocumentManager.ActiveDocument != null && DocumentManager.ActiveDocument is ISolutionItemDocument);
-            
+
+            FindAnywhereCommand = new AsyncAutoCommand(async () =>
+            {
+                await windowManager.ShowDialog(findAnywhereCreator());
+            });
+
+            Open3DCommand = new DelegateCommand(() =>
+            {
+                gameViewService.Value.Open();
+            });
+
+            OpenSqlDocumentCommand = new DelegateCommand(() =>
+            {
+                sqlEditorService.Value.NewDocument();
+            });
+
             DocumentManager.ToObservable(dm => dm.ActiveDocument)
                 .SubscribeAction(_ =>
                 {
@@ -118,6 +185,9 @@ namespace WoWDatabaseEditorCore.ViewModels
             
             TasksViewModel = tasksViewModel;
             RelatedSolutionItems = relatedSolutionItems;
+            QuickAccessViewModel = quickAccessViewModel;
+            QuickGoToViewModel = quickGoToViewModel;
+            ProfilesViewModel = profilesViewModel;
 
             MenuItemProviders = menuItemProvider.GetItems();
 
@@ -126,16 +196,27 @@ namespace WoWDatabaseEditorCore.ViewModels
 
             documentManager.OpenedDocuments.ToCountChangedObservable().SubscribeAction(count =>
             {
-                if (count == 0)
-                    mainThread.Dispatch(ShowStartPage);
+                if (count == 0 && !inCanClose)
+                    mainThread.Delay(ShowStartPage, TimeSpan.FromMilliseconds(1));
             });
             //LoadDefault();
-            
+
+            Watch(this.updateViewModel, x => x.HasPendingUpdate, nameof(HasUpdateToDownload));
+            Watch(this.updateViewModel, x => x.InstallPendingCommandUpdate, nameof(DownloadUpdateCommand));
             Watch(DocumentManager, dm => dm.ActiveSolutionItemDocument, nameof(ShowExportButtons));
-            Watch(DocumentManager, dm => dm.ActiveSolutionItemDocument, nameof(ShowPlayButtons));
-            
+            Watch(DocumentManager, dm => dm.ActiveDocument, nameof(ShowPlayButtons));
+            Watch(tablesToolService, serv => serv.Visibility, nameof(ShowTablesList));
+
+            eventAggregator.GetEvent<AllModulesLoaded>()
+                .Subscribe(() => Is3dViewSupported = gameViewService.Value.IsSupported);
+
             eventAggregator.GetEvent<AllModulesLoaded>()
                 .Subscribe(OpenFatalLogIfExists, ThreadOption.PublisherThread, true);
+        }
+
+        public bool ShowSqlEditorNotification()
+        {
+            return statisticsService.RunCounter > 10 && teachingTipService.ShowTip("SqlEditorNotification");
         }
 
         private void OpenFatalLogIfExists()
@@ -155,22 +236,45 @@ namespace WoWDatabaseEditorCore.ViewModels
                 .Build());
         }
 
-        public IStatusBar StatusBar { get; }
+        private void UpdateTitle()
+        {
+            if (programNameAddons.Count == 0)
+                Title = programNameService.Title;
+            else
+            {
+                var name = string.Join(" ", programNameAddons.Select(a => a.Addon));
+                Title = programNameService.Title + " " + name;
+            }
+            RaisePropertyChanged(nameof(Title));
+        }
+
+        public StatusBarViewModel StatusBar { get; }
         public IDocumentManager DocumentManager { get; }
 
         public TasksViewModel TasksViewModel { get; }
         public RelatedSolutionItems RelatedSolutionItems { get; }
+        public IQuickAccessViewModel QuickAccessViewModel { get; }
+        public QuickGoToViewModel QuickGoToViewModel { get; }
+        public ProfilesViewModel ProfilesViewModel { get; }
+        public TopBarQuickAccessViewModel TopBarQuickAccess { get; }
+        public SessionRestoreService SessionRestoreService { get; }
+        public IConnectionsStatusBarItem ConnectionsViewModel { get; }
+        public IVisualStudioManagerViewModel VisualStudioManagerViewModel { get; }
 
         public List<IMainMenuItem> MenuItemProviders { get; }
 
-        public string Title { get; }
+        public bool HasUpdateToDownload => updateViewModel.HasPendingUpdate;
+
+        public string Title { get; private set; }
         
         public string Subtitle { get; }
+        
+        public bool ShowRelatedItems { get; }
 
         public DelegateCommand<IMenuDocumentItem> OpenDocument { get; }
 
         // this fallback to QuickStartViewModel is a hack, otherwise Avalonia for some reason will never show this button if it is not visible in the beginning
-        public bool ShowPlayButtons => DocumentManager.ActiveSolutionItemDocument?.ShowExportToolbarButtons ?? false;
+        public bool ShowPlayButtons => (DocumentManager.ActiveSolutionItemDocument?.ShowExportToolbarButtons ?? false) || (DocumentManager.ActiveDocument?.Save?.CanExecute(null) ?? false);
         
         public bool ShowExportButtons => DocumentManager.ActiveSolutionItemDocument?.ShowExportToolbarButtons ?? true;
         
@@ -179,7 +283,29 @@ namespace WoWDatabaseEditorCore.ViewModels
         public AsyncAutoCommand CopyCurrentSqlCommand { get; }
         
         public DelegateCommand GenerateCurrentSqlCommand { get; }
+
+        public ICommand FindAnywhereCommand { get; }
         
+        public ICommand Open3DCommand { get; }
+        
+        public ICommand OpenSqlDocumentCommand { get; }
+
+        public ICommand DownloadUpdateCommand => updateViewModel.InstallPendingCommandUpdate;
+
+        public IVersionedFilesViewModel? VersionedFilesViewModel { get; }
+
+        public bool ShowTablesList
+        {
+            get => tablesToolService.Visibility;
+            set
+            {
+                if (value)
+                    tablesToolService.Open();
+                else
+                    tablesToolService.Close();
+            }
+        }
+
         private void ShowAbout()
         {
             DocumentManager.OpenDocument(aboutViewModelCreator());
@@ -215,65 +341,26 @@ namespace WoWDatabaseEditorCore.ViewModels
             }
         }
 
+        private bool inCanClose;
         public async Task<bool> CanClose()
         {
-            var modifiedDocuments = DocumentManager.OpenedDocuments.Where(d => d.IsModified).ToList();
-
-            if (modifiedDocuments.Count > 0)
+            if (inCanClose)
             {
-                while (modifiedDocuments.Count > 0)
-                {
-                    var editor = modifiedDocuments[^1];
-                    var message = new MessageBoxFactory<MessageBoxButtonType>().SetTitle("Document is modified")
-                        .SetMainInstruction("Do you want to save the changes of " + editor.Title + "?")
-                        .SetContent("Your changes will be lost if you don't save them.")
-                        .SetIcon(MessageBoxIcon.Warning)
-                        .WithYesButton(MessageBoxButtonType.Yes)
-                        .WithNoButton(MessageBoxButtonType.No)
-                        .WithCancelButton(MessageBoxButtonType.Cancel);
-
-                    if (modifiedDocuments.Count > 1)
-                    {
-                        message.SetExpandedInformation("Other modified documents:\n" +
-                                                       string.Join("\n",
-                                                           modifiedDocuments.SkipLast(1).Select(d => d.Title)));
-                        message.WithButton("Yes to all", MessageBoxButtonType.CustomA)
-                            .WithButton("No to all", MessageBoxButtonType.CustomB);
-                    }
-
-                    MessageBoxButtonType result = await messageBoxService.ShowDialog(message.Build());
-
-                    if (result == MessageBoxButtonType.Cancel)
-                        return false;
-
-                    if (result == MessageBoxButtonType.Yes)
-                    {
-                        editor.Save.Execute(null);
-                        modifiedDocuments.RemoveAt(modifiedDocuments.Count - 1);
-                        DocumentManager.OpenedDocuments.Remove(editor);
-                    }
-                    else if (result == MessageBoxButtonType.No)
-                    {
-                        modifiedDocuments.RemoveAt(modifiedDocuments.Count - 1);
-                        DocumentManager.OpenedDocuments.Remove(editor);
-                    }
-                    else if (result == MessageBoxButtonType.CustomA)
-                    {
-                        foreach (var m in modifiedDocuments)
-                            m.Save.Execute(null);
-                        modifiedDocuments.Clear();
-                    }
-                    else if (result == MessageBoxButtonType.CustomB)
-                    {
-                        modifiedDocuments.Clear();
-                    }
-                }
+                await messageBoxService.SimpleDialog("Closing in progress", "Closing in progress",
+                    "This app is already being closing (probably some async operation going in background)");
+                return false;
             }
 
-            while (DocumentManager.OpenedDocuments.Count > 0)
-                DocumentManager.OpenedDocuments.RemoveAt(DocumentManager.OpenedDocuments.Count - 1);
+            inCanClose = true;
 
-            return true;
+            try
+            {
+                return await DocumentManager.TryCloseAllDocuments(true);
+            }
+            finally
+            {
+                inCanClose = false;
+            }
         }
 
         public async Task<bool> TryClose()
@@ -281,6 +368,7 @@ namespace WoWDatabaseEditorCore.ViewModels
             if (!await CanClose())
                 return false;
             
+            SessionRestoreService.GracefulShutdown();
             CloseRequest?.Invoke();
             return true;
         }
@@ -292,5 +380,10 @@ namespace WoWDatabaseEditorCore.ViewModels
 
         public event Action CloseRequest = delegate{};
         public event Action ForceCloseRequest = delegate{};
+
+        public void NotifyWillClose()
+        {
+            globalServiceRoot.Dispose();
+        }
     }
 }

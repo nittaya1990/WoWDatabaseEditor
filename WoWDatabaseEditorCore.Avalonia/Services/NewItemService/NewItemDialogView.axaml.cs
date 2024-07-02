@@ -9,7 +9,7 @@ namespace WoWDatabaseEditorCore.Avalonia.Services.NewItemService
     /// <summary>
     ///     Interaction logic for NewItemWindow.xaml
     /// </summary>
-    public class NewItemDialogView : UserControl
+    public partial class NewItemDialogView : UserControl
     {
         public NewItemDialogView()
         {

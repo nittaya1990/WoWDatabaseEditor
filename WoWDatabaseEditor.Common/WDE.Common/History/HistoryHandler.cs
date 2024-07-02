@@ -1,16 +1,19 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace WDE.Common.History
 {
-    public abstract class HistoryHandler
+    public class HistoryHandler
     {
         private readonly List<IHistoryAction> bulkEditing = new();
-        private bool inBulkEditing;
+        private int inBulkEditingNestLevel;
+        private bool inPause;
         public event EventHandler<IHistoryAction> ActionPush = delegate { };
         public event EventHandler<IHistoryAction> ActionDone = delegate { };
+        public event EventHandler<IHistoryAction> ActionDoneWithoutHistory = delegate { };
 
-        protected IDisposable WithinBulk(string name)
+        public IDisposable WithinBulk(string name)
         {
             StartBulkEdit();
             return new EndBulkEditing(this, name);
@@ -18,32 +21,62 @@ namespace WDE.Common.History
         
         protected void StartBulkEdit()
         {
-            inBulkEditing = true;
-            bulkEditing.Clear();
+            if (inBulkEditingNestLevel++ == 0)
+            {
+                bulkEditing.Clear();
+            }
         }
 
         protected void EndBulkEdit(string name)
         {
-            if (inBulkEditing)
+            if (--inBulkEditingNestLevel == 0)
             {
-                inBulkEditing = false;
                 if (bulkEditing.Count > 0)
                     PushAction(new CompoundHistoryAction(name, bulkEditing.ToArray()));
+                bulkEditing.Clear();
             }
         }
 
-        protected void PushAction(IHistoryAction action)
+        public IDisposable Pause()
         {
-            if (inBulkEditing)
+            StartPause();
+            return new EndPauseDisposable(this);
+        }
+        
+        protected void StartPause()
+        {
+            inPause = true;
+        }
+
+        protected void EndPause()
+        {
+            if (inPause)
+            {
+                inPause = false;
+            }
+        }
+
+        public void PushAction(IHistoryAction action)
+        {
+            if (inPause)
+                return;
+            
+            if (inBulkEditingNestLevel > 0)
                 bulkEditing.Add(action);
             else
                 ActionPush(this, action);
         }
         
-        protected void DoAction(IHistoryAction action)
+        public void DoAction(IHistoryAction action)
         {
-            if (inBulkEditing)
-                throw new Exception("Cannot execute action while bulk editing!");
+            if (inPause)
+                return;
+
+            if (inBulkEditingNestLevel > 0)
+            {
+                ActionDoneWithoutHistory(this, action);
+                bulkEditing.Add(action);
+            }
             else
                 ActionDone(this, action);
         }
@@ -62,6 +95,21 @@ namespace WDE.Common.History
             public void Dispose()
             {
                 historyHandler.EndBulkEdit(name);
+            }
+        }
+
+        private readonly struct EndPauseDisposable : System.IDisposable
+        {
+            private readonly HistoryHandler historyHandler;
+
+            public EndPauseDisposable(HistoryHandler historyHandler)
+            {
+                this.historyHandler = historyHandler;
+            }
+
+            public void Dispose()
+            {
+                historyHandler.EndPause();
             }
         }
     }

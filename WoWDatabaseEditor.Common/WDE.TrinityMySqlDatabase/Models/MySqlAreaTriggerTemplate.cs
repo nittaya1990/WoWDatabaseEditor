@@ -11,10 +11,11 @@ namespace WDE.TrinityMySqlDatabase.Models
         public uint Id { get; set; }
 
         [PrimaryKey]
-        [Column(Name = "IsServerSide")]
+        [Column(Name = "IsCustom")]
         public bool IsServerSide { get; set; }
-        
-        [Column(Name = "ScriptName")]
-        public string? ScriptName { get; set; }
+
+        public string? Name => null;
+        public string? ScriptName => null;
+        public string? AIName => null;
     }
 }

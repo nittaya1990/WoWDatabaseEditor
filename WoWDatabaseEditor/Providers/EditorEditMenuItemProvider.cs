@@ -1,11 +1,18 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.ComponentModel;
+using System.Reactive.Linq;
 using System.Runtime.CompilerServices;
 using Prism.Commands;
 using WDE.Common.Annotations;
 using WDE.Common.Managers;
 using WDE.Common.Menu;
+using WDE.Common.QuickAccess;
+using WDE.Common.Services;
+using WDE.Common.Utils;
 using WDE.Module.Attributes;
+using WDE.MVVM;
+using WoWDatabaseEditorCore.Services.FindAnywhere;
 
 namespace WoWDatabaseEditorCore.Providers
 {
@@ -17,21 +24,25 @@ namespace WoWDatabaseEditorCore.Providers
         public MainMenuItemSortPriority SortPriority => MainMenuItemSortPriority.PriorityHigh;
         public IDocumentManager DocumentManager { get; }
 
-        public EditorEditMenuItemProvider(IDocumentManager documentManager)
+        public EditorEditMenuItemProvider(IDocumentManager documentManager,
+            ITablesToolService tablesToolService)
         {
             DocumentManager = documentManager;
             SubItems = new List<IMenuItem>();
-            SubItems.Add(new ModuleMenuItem("_Undo", new DelegateCommand(() =>
-                {
-                    DocumentManager.ActiveUndoRedo?.Undo.Execute(null);
-                },
-                () => DocumentManager.ActiveUndoRedo?.Undo.CanExecute(null) ?? false)
+            var undo = new DelegateCommand(() =>
+                    {
+                        DocumentManager.ActiveUndoRedo?.Undo.Execute(null);
+                    },
+                    () => DocumentManager.ActiveUndoRedo?.Undo.CanExecute(null) ?? false)
                 .ObservesProperty(() => DocumentManager.ActiveUndoRedo)
-                .ObservesProperty(() => DocumentManager.ActiveUndoRedo!.IsModified), new("Control+Z")));
-            
-            SubItems.Add(new ModuleMenuItem("_Redo", new DelegateCommand(() => DocumentManager.ActiveUndoRedo?.Redo.Execute(null),
-                () => DocumentManager.ActiveUndoRedo?.Redo.CanExecute(null) ?? false).ObservesProperty(() => DocumentManager.ActiveUndoRedo).
-                ObservesProperty(() => DocumentManager.ActiveUndoRedo!.IsModified), new("Control+Y")));
+                .ObservesProperty(() => DocumentManager.ActiveUndoRedo!.IsModified);
+            SubItems.Add(new ModuleMenuItem("_Undo", undo, new("Control+Z")));
+
+            var redo = new DelegateCommand(() => DocumentManager.ActiveUndoRedo?.Redo.Execute(null),
+                    () => DocumentManager.ActiveUndoRedo?.Redo.CanExecute(null) ?? false)
+                .ObservesProperty(() => DocumentManager.ActiveUndoRedo)
+                .ObservesProperty(() => DocumentManager.ActiveUndoRedo!.IsModified);
+            SubItems.Add(new ModuleMenuItem("_Redo", redo, new("Control+Y")));
             
             SubItems.Add(new ModuleManuSeparatorItem());
             
@@ -51,6 +62,33 @@ namespace WoWDatabaseEditorCore.Providers
                 new DelegateCommand(() => DocumentManager.ActiveDocument?.Paste.Execute(null),
                 () => DocumentManager.ActiveDocument?.Paste.CanExecute(null) ?? false)
                     .ObservesProperty(() => DocumentManager.ActiveDocument), new("Control+V")));
+            
+            SubItems.Add(new ModuleManuSeparatorItem());
+            
+            SubItems.Add(new ModuleMenuItem("Toggle tables view",
+                new DelegateCommand(() =>
+                {
+                    if (tablesToolService.Visibility)
+                        tablesToolService.Close();
+                    else
+                        tablesToolService.Open();
+                }),
+                new("Control+T")));
+            
+            
+            DocumentManager
+                .ToObservable(x => x.ActiveUndoRedo)
+                .Select(x => x?.Undo ?? AlwaysDisabledCommand.Command)
+                .Select(x => x.ToObservable())
+                .Switch()
+                .Subscribe(_ => undo.RaiseCanExecuteChanged());
+            DocumentManager
+                .ToObservable(x => x.ActiveUndoRedo)
+                .Select(x => x?.Redo ?? AlwaysDisabledCommand.Command)
+                .Select(x => x.ToObservable())
+                .Switch()
+                .Subscribe(_ => redo.RaiseCanExecuteChanged());
+
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

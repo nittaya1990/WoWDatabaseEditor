@@ -11,21 +11,21 @@ namespace WDE.SmartScriptEditor.Inspections
             int indentation = 0;
             foreach (var action in e.Actions)
             {
-                if (action.ActionFlags.HasFlag(ActionFlags.DecreaseIndent))
+                if (action.ActionFlags.HasFlagFast(ActionFlags.DecreaseIndent))
                 {
                     if (indentation <= 0)
                     {
                         return new InspectionResult()
                         {
                             Severity = DiagnosticSeverity.Error,
-                            Line = action.LineId,
+                            Line = action.VirtualLineId,
                             Message = "[END] without matching begin block, script will not work at all"
                         };
                     }
                     indentation--;
                 }
 
-                if (action.ActionFlags.HasFlag(ActionFlags.IncreaseIndent))
+                if (action.ActionFlags.HasFlagFast(ActionFlags.IncreaseIndent))
                     indentation++;
             }
 
@@ -34,7 +34,7 @@ namespace WDE.SmartScriptEditor.Inspections
                 return new InspectionResult()
                 {
                     Severity = DiagnosticSeverity.Error,
-                    Line = e.Actions[^1].LineId,
+                    Line = e.Actions[^1].VirtualLineId,
                     Message = "Missing [END] action, script will not work at all."
                 };
             }

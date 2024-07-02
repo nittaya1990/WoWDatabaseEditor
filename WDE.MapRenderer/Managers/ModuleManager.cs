@@ -1,5 +1,7 @@
+using System.Collections;
 using System.Collections.ObjectModel;
 using Prism.Ioc;
+using WDE.Common.Utils;
 using WDE.MVVM.Observable;
 
 namespace WDE.MapRenderer.Managers
@@ -13,6 +15,7 @@ namespace WDE.MapRenderer.Managers
         private HashSet<Func<IContainerProvider, IGameModule>> modulesToRemove = new();
         private List<(Func<IContainerProvider, IGameModule>, IGameModule, object?)> modules = new();
         public ObservableCollection<object> ViewModels { get; } = new();
+        public ObservableCollection<object> ToolBars { get; } = new();
 
         public ModuleManager(IContainerProvider containerProvider,
             IGameView gameView)
@@ -27,6 +30,21 @@ namespace WDE.MapRenderer.Managers
             gameView.ModuleRemoved += GameViewOnModuleRemoved;
         }
 
+        public void ForEach(Action<IGameModule> action)
+        {
+            foreach (var mod in modules)
+                action(mod.Item2);
+        }
+        
+        public IEnumerator ForEach(Func<IGameModule, IEnumerator> action)
+        {
+            for (var index = 0; index < modules.Count; index++)
+            {
+                var mod = modules[index];
+                yield return action(mod.Item2);
+            }
+        }
+        
         public void Update(float delta)
         {
             foreach (var m in modulesToAdd)
@@ -36,6 +54,8 @@ namespace WDE.MapRenderer.Managers
                 modules.Add((m, moduleInstance, moduleInstance.ViewModel));
                 if (moduleInstance.ViewModel != null)
                     ViewModels.Add(moduleInstance.ViewModel);
+                if (moduleInstance.ToolBar != null)
+                    ToolBars.Add(moduleInstance.ToolBar);
             }
             modulesToAdd.Clear();
             foreach (var toRemove in modulesToRemove)
@@ -47,6 +67,8 @@ namespace WDE.MapRenderer.Managers
                         modules[i].Item2.Dispose();
                         if (modules[i].Item3 != null)
                             ViewModels.Remove(modules[i].Item3);
+                        if (modules[i].Item2.ToolBar != null)
+                            ToolBars.Remove(modules[i].Item2.ToolBar);
                         modules.RemoveAt(i);
                         break;
                     }
@@ -77,16 +99,22 @@ namespace WDE.MapRenderer.Managers
             modules.Clear();
         }
 
-        public void Render()
+        public void Render(float delta)
         {
             foreach (var module in modules)
-                module.Item2.Render();
+                module.Item2.Render(delta);
         }
 
         public void RenderGUI()
         {
             foreach (var module in modules)
                 module.Item2.RenderGUI();
+        }
+
+        public void RenderTransparent()
+        {
+            foreach (var module in modules)
+                module.Item2.RenderTransparent();
         }
     }
 }

@@ -7,6 +7,7 @@ using System.Windows.Input;
 using AsyncAwaitBestPractices.MVVM;
 using Prism.Commands;
 using Prism.Events;
+using PropertyChanged.SourceGenerator;
 using WDE.Common;
 using WDE.Common.CoreVersion;
 using WDE.Common.Documents;
@@ -15,6 +16,8 @@ using WDE.Common.History;
 using WDE.Common.Managers;
 using WDE.Common.Parameters;
 using WDE.Common.Services;
+using WDE.Common.Services.MessageBox;
+using WDE.Common.Services.Statistics;
 using WDE.Common.Solution;
 using WDE.Common.Tasks;
 using WDE.Common.Types;
@@ -32,13 +35,15 @@ using WoWDatabaseEditorCore.Services.Statistics;
 
 namespace WoWDatabaseEditorCore.ViewModels
 {
-    public class QuickStartViewModel : ObservableBase, IDocument
+    public partial class QuickStartViewModel : ObservableBase, IDocument
     {
         private readonly ISolutionItemIconRegistry iconRegistry;
         private readonly ISolutionItemNameRegistry nameRegistry;
         private readonly IMostRecentlyUsedService mostRecentlyUsedService;
+        private readonly IUserSettings userSettings;
         private readonly IDotNetService dotNetService;
         private bool showGiveStarBox;
+        private bool showAvalonia11Box;
         public AboutViewModel AboutViewModel { get; }
         public ObservableCollection<NewItemPrototypeInfo> FlatItemPrototypes { get; } = new();
         public ObservableCollection<MostRecentlyUsedViewModel> MostRecentlyUsedItems { get; } = new();
@@ -54,12 +59,13 @@ namespace WoWDatabaseEditorCore.ViewModels
             set => SetProperty(ref showGiveStarBox, value);
         }
 
-        public bool IsWindows7
+        public bool ShowAvalonia11Box
         {
-            get
+            get => showAvalonia11Box;
+            set
             {
-                var os = System.Environment.OSVersion;
-                return os.Platform == PlatformID.Win32NT && os.Version.Major <= 6 && os.Version.Minor <= 1;
+                SetProperty(ref showAvalonia11Box, value);
+                UpdateSettings();
             }
         }
 
@@ -67,6 +73,12 @@ namespace WoWDatabaseEditorCore.ViewModels
         
         public string ProgramSubtitle { get; }
         
+        public object? QuickStartPanel { get; }
+
+        [Notify] private bool isDotNet8Installed = true;
+
+        public ICommand OpenDotNet8Website { get; }
+
         public QuickStartViewModel(ISolutionItemProvideService solutionItemProvideService, 
             IEnumerable<IWizardProvider> wizards,
             IEventAggregator eventAggregator,
@@ -85,17 +97,21 @@ namespace WoWDatabaseEditorCore.ViewModels
             IWindowManager windowManager,
             IProgramNameService programNameService,
             IQuickLoadSettings quickLoadSettings,
-            AboutViewModel aboutViewModel)
+            IMessageBoxService messageBoxService,
+            AboutViewModel aboutViewModel,
+            IEnumerable<IQuickStartPanel> quickStartPanels)
         {
             this.iconRegistry = iconRegistry;
             this.nameRegistry = nameRegistry;
             this.mostRecentlyUsedService = mostRecentlyUsedService;
+            this.userSettings = userSettings;
             this.dotNetService = dotNetService;
             ProgramTitle = programNameService.Title;
             ProgramSubtitle = programNameService.Subtitle;
             Wizards.AddRange(wizards.Where(w => w.IsCompatibleWithCore(currentCoreVersion.Current)));
             HasWizards = Wizards.Count > 0;
             AboutViewModel = aboutViewModel;
+            QuickStartPanel = quickStartPanels.FirstOrDefault();
 
             var all = solutionItemProvideService.All.ToList();
             quickLoadSettings.Sort(all);
@@ -131,7 +147,7 @@ namespace WoWDatabaseEditorCore.ViewModels
                 var item = await prototype.CreateSolutionItem("");
                 if (item != null)
                     eventAggregator.GetEvent<EventRequestOpenItem>().Publish(item);
-            });
+            }).WrapMessageBox<Exception, NewItemPrototypeInfo>(messageBoxService);
 
             OpenMostRecentlyUsedCommand = new AsyncAutoCommand<MostRecentlyUsedViewModel>(async item =>
             {
@@ -147,7 +163,7 @@ namespace WoWDatabaseEditorCore.ViewModels
             DismissCommand = new DelegateCommand(() =>
             {
                 ShowGiveStarBox = false;
-                userSettings.Update(new QuickStartSettings(){DismissedLeaveStarBox = true});
+                UpdateSettings();
             });
 
             OpenGithubAndDismissCommand = new DelegateCommand(() =>
@@ -155,8 +171,8 @@ namespace WoWDatabaseEditorCore.ViewModels
                 urlOpenService.OpenUrl("https://github.com/BAndysc/WoWDatabaseEditor");
                 DismissCommand.Execute(null);
             });
-            
-            parameterFactory.OnRegister().SubscribeAction(_ =>
+
+            parameterFactory.OnRegister().Safe().SubscribeAction(_ =>
             {
                 ReloadMruList();
             });
@@ -166,28 +182,40 @@ namespace WoWDatabaseEditorCore.ViewModels
                 mainThread.Dispatch(ReloadMruList);
             }, true));
 
-            OpenDotNet6Website = new AsyncAutoCommand(async () =>
-            {
-                var url = dotNetService.DownloadDotNet6Link;
-                windowManager.OpenUrl(url.ToString());
-            });
-
-            CheckDotNet().ListenErrors();
-            
             ShowGiveStarBox = statisticsService.RunCounter > 20 &&
                               !applicationReleaseConfiguration.GetBool("SKIP_STAR_BOX").GetValueOrDefault() &&
                               !userSettings.Get<QuickStartSettings>().DismissedLeaveStarBox;
 
-            ReloadMruList();
+            showAvalonia11Box = !userSettings.Get<QuickStartSettings>().DismissedAvalonia11Box;
+
+            try
+            {
+                ReloadMruList();
+            } catch (Exception)
+            {
+            }
+
+            OpenDotNet8Website = new DelegateCommand(() =>
+            {
+                windowManager.OpenUrl(dotNetService.DownloadDotNet8Link.ToString());
+            });
+
+            async Task Initialize()
+            {
+                IsDotNet8Installed = await dotNetService.IsDotNet8Installed();
+            }
+            Initialize().ListenErrors();
         }
 
-        private async Task CheckDotNet()
+        private void UpdateSettings()
         {
-            var isInstalled = await dotNetService.IsDotNet6Installed();
-            IsDotNet6Installed = isInstalled;
-            RaisePropertyChanged(nameof(IsDotNet6Installed));
+            userSettings.Update(new QuickStartSettings()
+            {
+                DismissedLeaveStarBox = !ShowGiveStarBox,
+                DismissedAvalonia11Box = !showAvalonia11Box
+            });
         }
-        
+
         private void ReloadMruList()
         {
             MostRecentlyUsedItems.Clear();
@@ -201,9 +229,7 @@ namespace WoWDatabaseEditorCore.ViewModels
             }
         }
 
-        public bool IsDotNet6Installed { get; private set; } = true;
-        public AsyncAutoCommand OpenDotNet6Website { get; }
-        public AsyncAutoCommand<NewItemPrototypeInfo> LoadItemCommand { get; }
+        public IAsyncCommand<NewItemPrototypeInfo> LoadItemCommand { get; }
         public AsyncAutoCommand<IWizardProvider> LoadWizard { get; }
         public AsyncAutoCommand<MostRecentlyUsedViewModel> OpenMostRecentlyUsedCommand { get; }
         
@@ -214,7 +240,7 @@ namespace WoWDatabaseEditorCore.ViewModels
         public ICommand Copy => AlwaysDisabledCommand.Command;
         public ICommand Cut => AlwaysDisabledCommand.Command;
         public ICommand Paste => AlwaysDisabledCommand.Command;
-        public ICommand Save => AlwaysDisabledCommand.Command;
+        public IAsyncCommand Save => AlwaysDisabledAsyncCommand.Command;
         public IAsyncCommand? CloseCommand { get; set; } = null;
         public bool CanClose => true;
         public bool IsModified => false;
@@ -224,6 +250,7 @@ namespace WoWDatabaseEditorCore.ViewModels
     public struct QuickStartSettings : ISettings
     {
         public bool DismissedLeaveStarBox { get; set; }
+        public bool DismissedAvalonia11Box { get; set; }
     }
 
     public class MostRecentlyUsedViewModel

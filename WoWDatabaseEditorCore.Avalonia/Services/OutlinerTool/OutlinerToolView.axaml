@@ -1,0 +1,48 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:outlinerTool="clr-namespace:WoWDatabaseEditorCore.Services.OutlinerTool;assembly=WoWDatabaseEditorCore"
+             xmlns:outlinerViews="clr-namespace:WoWDatabaseEditorCore.Avalonia.Services.OutlinerTool"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:DataType="outlinerTool:OutlinerToolViewModel"
+             x:Class="WoWDatabaseEditorCore.Avalonia.Services.OutlinerTool.OutlinerToolView">
+    <ScrollViewer HorizontalScrollBarVisibility="Auto">
+        <VirtualizedTreeView Items="{CompiledBinding FlatItems}" SelectedNode="{CompiledBinding SelectedNode}"
+                             DoubleTapped="InputElement_OnDoubleTapped"
+                             Name="TreeView"
+                             IsFiltered="True"
+                             NeverShrinkWidth="True"
+                             >
+            <VirtualizedTreeView.DataTemplates>
+                <DataTemplate x:DataType="outlinerTool:OutlinerGroupViewModel" DataType="outlinerTool:OutlinerGroupViewModel">
+                    <TextBlock VerticalAlignment="Center" Text="{CompiledBinding Name}" />
+                </DataTemplate>
+                <DataTemplate x:DataType="outlinerTool:OutlinerItemViewModel" DataType="outlinerTool:OutlinerItemViewModel">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <WdeImage Image="{CompiledBinding Icon}" Width="16" Height="16" />
+                        <TextBlock VerticalAlignment="Center" Text="{CompiledBinding Entry}" FontWeight="Bold" />
+                        <TextBlock VerticalAlignment="Center" Text="{CompiledBinding Name}" />
+                    </StackPanel>
+                </DataTemplate>
+            </VirtualizedTreeView.DataTemplates>
+            <VirtualizedTreeView.ContextFlyout>
+                <Flyout>
+                    <StackPanel>
+                        <SettingsHeader>Select where to search:</SettingsHeader>
+                        <ItemsControl ItemsSource="{CompiledBinding Sources}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <CheckBox HorizontalAlignment="Stretch"
+                                              Padding="4,8"
+                                              IsChecked="{CompiledBinding Include}"
+                                              Content="{CompiledBinding Name}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Flyout>
+            </VirtualizedTreeView.ContextFlyout>
+        </VirtualizedTreeView>
+    </ScrollViewer>
+</UserControl>

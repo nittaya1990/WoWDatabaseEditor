@@ -2,8 +2,11 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:system="clr-namespace:System;assembly=mscorlib"
+             x:DataType="viewModels:StatusBarViewModel"
              xmlns:converters="clr-namespace:WDE.Common.Avalonia.Converters;assembly=WDE.Common.Avalonia"
-             xmlns:managers="clr-namespace:WDE.Common.Managers;assembly=WDE.Common">
+             xmlns:managers="clr-namespace:WoWDatabaseEditorCore.Managers;assembly=WoWDatabaseEditorCore"
+             xmlns:managers1="clr-namespace:WDE.Common.Managers;assembly=WDE.Common"
+             xmlns:viewModels="clr-namespace:WoWDatabaseEditorCore.ViewModels;assembly=WoWDatabaseEditorCore">
     <UserControl.Resources>
         <converters:NullConverter Inverted="True" x:Key="NullConverter" />
         
@@ -19,68 +22,164 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
         
-        <Panel>
+        <StackPanel Orientation="Horizontal">
+            <ButtonImage ToolTip.Tip="Copy the next creature guid" Command="{CompiledBinding CopyNextCreatureGuidCommand}" Image="Icons/icon_npc_mono.png">
+                <ButtonImage.ContextFlyout>
+                    <Flyout>
+                        <StackPanel Orientation="Vertical" Spacing="5">
+                            <TextBlock>How many guids do you want to reserve?</TextBlock>
+                            <TextBox Text="{CompiledBinding CreatureGuidCount}" />
+                            <Button Click="HideFlyout" Command="{CompiledBinding CopyCreatureGuidRangeCommand}" Background="#20000000" Foreground="{DynamicResource ButtonForeground}" Content="Copy first" />
+                            <StackPanel.KeyBindings>
+                                <KeyBinding Gesture="Enter" Command="{CompiledBinding CopyCreatureGuidRangeCommand}" />
+                            </StackPanel.KeyBindings>
+                        </StackPanel>
+                    </Flyout>
+                </ButtonImage.ContextFlyout>
+            </ButtonImage>
+            <ButtonImage ToolTip.Tip="Copy the next gameobject guid" Command="{CompiledBinding CopyNextGameobjectGuidCommand}" Image="Icons/icon_chest_mono.png">
+                <ButtonImage.ContextFlyout>
+                    <Flyout>
+                        <StackPanel Orientation="Vertical" Spacing="5">
+                            <TextBlock>How many guids do you want to reserve?</TextBlock>
+                            <TextBox Text="{CompiledBinding GameobjectGuidCount}" />
+                            <Button Click="HideFlyout" Command="{CompiledBinding CopyGameobjectGuidRangeCommand}" Background="#20000000" Foreground="{DynamicResource ButtonForeground}" Content="Copy first" />
+                            <StackPanel.KeyBindings>
+                                <KeyBinding Gesture="Enter" Command="{CompiledBinding CopyGameobjectGuidRangeCommand}" />
+                            </StackPanel.KeyBindings>
+
+                        </StackPanel>
+                    </Flyout>
+                </ButtonImage.ContextFlyout>
+            </ButtonImage>
+            <Border Margin="5,0" Width="1" Height="10" Background="White" Opacity="0.5" />
+        </StackPanel>
+        
+        <Panel Grid.Column="1">
             <Button 
                 HorizontalContentAlignment="Left"
-                Opacity="1" Command="{Binding CurrentNotification.ClickCommand}" 
-                IsEnabled="{Binding CurrentNotification.ClickCommand, Converter={StaticResource NullConverter}}">
+                Opacity="1" Command="{CompiledBinding CurrentNotification.ClickCommand, FallbackValue={x:Null}}" 
+                IsEnabled="{CompiledBinding CurrentNotification.ClickCommand, Converter={StaticResource NullConverter}, FallbackValue=False}">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch" ClipToBounds="True">
                     <Image Margin="0,3,5,3">
                         <Interaction.Behaviors>
-                            <DataTriggerBehavior Binding="{Binding CurrentNotification.Type}" ComparisonCondition="Equal" Value="{x:Static managers:NotificationType.Error}">
+                            <DataTriggerBehavior Binding="{CompiledBinding CurrentNotification.Type}" ComparisonCondition="Equal" Value="{x:Static managers1:NotificationType.Error}">
                                 <ChangePropertyAction TargetObject="{Binding #Image}" PropertyName="Source" Value="{DynamicResource StatusBarIconError}"/>
                             </DataTriggerBehavior>
-                            <DataTriggerBehavior Binding="{Binding CurrentNotification.Type}" ComparisonCondition="Equal" Value="{x:Static managers:NotificationType.Warning}">
+                            <DataTriggerBehavior Binding="{CompiledBinding CurrentNotification.Type}" ComparisonCondition="Equal" Value="{x:Static managers1:NotificationType.Warning}">
                                 <ChangePropertyAction TargetObject="{Binding #Image}" PropertyName="Source" Value="{DynamicResource StatusBarIconWarning}"/>
                             </DataTriggerBehavior>
-                            <DataTriggerBehavior Binding="{Binding CurrentNotification.Type}" ComparisonCondition="Equal" Value="{x:Static managers:NotificationType.Info}">
+                            <DataTriggerBehavior Binding="{CompiledBinding CurrentNotification.Type}" ComparisonCondition="Equal" Value="{x:Static managers1:NotificationType.Info}">
                                 <ChangePropertyAction TargetObject="{Binding #Image}" PropertyName="Source" Value="{DynamicResource StatusBarIconNotice}"/>
                             </DataTriggerBehavior>
-                            <DataTriggerBehavior Binding="{Binding CurrentNotification.Type}" ComparisonCondition="Equal" Value="{x:Static managers:NotificationType.Success}">
+                            <DataTriggerBehavior Binding="{CompiledBinding CurrentNotification.Type}" ComparisonCondition="Equal" Value="{x:Static managers1:NotificationType.Success}">
                                 <ChangePropertyAction TargetObject="{Binding #Image}" PropertyName="Source" Value="{DynamicResource StatusBarIconSuccess}"/>
                             </DataTriggerBehavior>
                         </Interaction.Behaviors>
                     </Image>
                     <TextBlock HorizontalAlignment="Stretch" TextTrimming="CharacterEllipsis" 
                                ClipToBounds="True"
-                               VerticalAlignment="Center" Text="{Binding CurrentNotification.Message}" />  
+                               VerticalAlignment="Center" Text="{CompiledBinding CurrentNotification.Message}" />  
                 </StackPanel>
             </Button>
         </Panel>
-        <Panel Grid.Column="1" VerticalAlignment="Stretch" Margin="0,0,10,0">
-            <Button Command="{Binding OpenProblemTool}">
-                <WrapPanel>
-                    <Image Width="13" Height="13" Margin="0,0,3,0" VerticalAlignment="Center">
+        
+        <Panel Grid.Column="2" VerticalAlignment="Stretch" Margin="0,0,10,0" DataContext="{CompiledBinding ServerExecutableService}">
+            <Button BorderThickness="0" Foreground="White" Background="Transparent" Command="{CompiledBinding ToggleWorldServer}">
+                <StackPanel Orientation="Horizontal" Spacing="3">
+                    <WdeImage Width="13" Height="13" VerticalAlignment="Center">
                         <Interaction.Behaviors>
-                            <DataTriggerBehavior Binding="{Binding TotalProblems}" ComparisonCondition="Equal" Value="0">
+                            <DataTriggerBehavior Binding="{CompiledBinding IsWorldServerRunning}" ComparisonCondition="Equal" Value="True">
+                                <ChangePropertyAction TargetObject="{Binding #WdeImage}" 
+                                                      PropertyName="ImageUri"
+                                                      Value="Icons/icon_pause_mono.png" />
+                            </DataTriggerBehavior>
+                            <DataTriggerBehavior Binding="{CompiledBinding IsWorldServerRunning}" ComparisonCondition="NotEqual" Value="True">
+                                <ChangePropertyAction TargetObject="{Binding #WdeImage}" 
+                                                      PropertyName="ImageUri"
+                                                      Value="Icons/icon_play_mono.png" />
+                            </DataTriggerBehavior>
+                        </Interaction.Behaviors>
+                    </WdeImage>
+                    <TextBlock>World server</TextBlock>
+                </StackPanel>
+            </Button>
+        </Panel>
+        
+        <Panel Grid.Column="3" VerticalAlignment="Stretch" DataContext="{CompiledBinding ServerExecutableService}">
+            <Button BorderThickness="0" Foreground="White" Background="Transparent" Command="{CompiledBinding ToggleAuthServer}">
+                <StackPanel Orientation="Horizontal" Spacing="3">
+                    <WdeImage Width="13" Height="13" Margin="0,0,3,0" VerticalAlignment="Center">
+                        <Interaction.Behaviors>
+                            <DataTriggerBehavior Binding="{CompiledBinding IsAuthServerRunning}" ComparisonCondition="Equal" Value="True">
+                                <ChangePropertyAction TargetObject="{Binding #WdeImage}" 
+                                                      PropertyName="ImageUri"
+                                                      Value="Icons/icon_pause_mono.png" />
+                            </DataTriggerBehavior>
+                            <DataTriggerBehavior Binding="{CompiledBinding IsAuthServerRunning}" ComparisonCondition="NotEqual" Value="True">
+                                <ChangePropertyAction TargetObject="{Binding #WdeImage}" 
+                                                      PropertyName="ImageUri"
+                                                      Value="Icons/icon_play_mono.png" />
+                            </DataTriggerBehavior>
+                        </Interaction.Behaviors>
+                    </WdeImage>
+                    <TextBlock>Auth server</TextBlock>
+                </StackPanel>
+            </Button>
+        </Panel>
+
+        <Panel Grid.Column="4" VerticalAlignment="Stretch" IsVisible="{CompiledBinding SupportsBreakpoints}" ToolTip.Tip="View Breakpoints (Ctrl + B)">
+            <Button BorderThickness="0" Foreground="White" Background="Transparent" Command="{CompiledBinding OpenBreakpointsWindow}">
+                <StackPanel Orientation="Horizontal" Spacing="3">
+                    <WdeImage ImageUri="Icons/icon_breakpoint_mono_all.png" Width="13" Height="13" />
+                    <TextBlock Text="{CompiledBinding TotalBreakpoints}" />
+                    <TextBlock Text=" Breakpoints" />
+                </StackPanel>
+            </Button>
+        </Panel>
+
+        <Panel Grid.Column="5" VerticalAlignment="Stretch">
+            <Button BorderThickness="0" Foreground="White" Background="Transparent" Command="{CompiledBinding OpenProblemTool}">
+                <StackPanel Orientation="Horizontal" Spacing="3">
+                    <Image Width="13" Height="13" VerticalAlignment="Center">
+                        <Interaction.Behaviors>
+                            <DataTriggerBehavior Binding="{CompiledBinding TotalProblems}" ComparisonCondition="Equal" Value="0">
                                 <ChangePropertyAction TargetObject="{Binding #Image}" 
                                                       PropertyName="Source"
                                                       Value="{StaticResource NoProblems}" />
                             </DataTriggerBehavior>
-                            <DataTriggerBehavior Binding="{Binding TotalProblems}" ComparisonCondition="NotEqual" Value="0">
+                            <DataTriggerBehavior Binding="{CompiledBinding TotalProblems}" ComparisonCondition="NotEqual" Value="0">
                                 <ChangePropertyAction TargetObject="{Binding #Image}" 
                                                       PropertyName="Source"
                                                       Value="{StaticResource Problems}" />
                             </DataTriggerBehavior>
                         </Interaction.Behaviors>
                     </Image>
-                    <TextBlock Text="{Binding TotalProblems, Mode=OneWay}" IsHitTestVisible="False" Foreground="{DynamicResource StatusBarForeground}" />
+                    <TextBlock Text="{CompiledBinding TotalProblems, Mode=OneWay}" IsHitTestVisible="False" />
                     <TextBlock Text=" problems found"></TextBlock>
-                </WrapPanel>
+                </StackPanel>
             </Button>
         </Panel>
         
-        <Panel Grid.Column="2" VerticalAlignment="Stretch" Margin="0">
-            <Button Command="{Binding TasksViewModel.TogglePanelVisibility}">
-                <WrapPanel>
-                    <TextBlock Text="{Binding TasksViewModel.PendingTasksCount, Mode=OneWay}" IsHitTestVisible="False" Foreground="{DynamicResource StatusBarForeground}" />
-                    <TextBlock Text=" tasks running in background"></TextBlock>
-                </WrapPanel>
+        <Panel Grid.Column="6" VerticalAlignment="Stretch" Margin="0">
+            <Button BorderThickness="0" Foreground="White" Background="Transparent" Command="{CompiledBinding ToggleConnectionsPanelVisibility}">
+                <TextBlock Text="{CompiledBinding Connections.OpenedConnections, StringFormat={}{0} connections, Mode=OneWay}" IsHitTestVisible="False" />
+            </Button>
+        </Panel>
+        
+        <Panel Grid.Column="7" VerticalAlignment="Stretch" Margin="0">
+            <Button BorderThickness="0" Foreground="White" Background="Transparent" Command="{CompiledBinding ToggleTasksPanelVisibility}">
+                <TextBlock Text="{CompiledBinding TasksViewModel.PendingTasksCount, StringFormat={}{0} tasks running in background, Mode=OneWay}" IsHitTestVisible="False" />
             </Button>
         </Panel>
     </Grid>

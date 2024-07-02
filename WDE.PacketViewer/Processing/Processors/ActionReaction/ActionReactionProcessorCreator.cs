@@ -1,7 +1,9 @@
 using System;
+using Prism.Ioc;
 using WDE.Common.Database;
 using WDE.Common.Services;
 using WDE.Module.Attributes;
+using WDE.PacketViewer.ViewModels;
 
 namespace WDE.PacketViewer.Processing.Processors.ActionReaction
 {
@@ -15,39 +17,42 @@ namespace WDE.PacketViewer.Processing.Processors.ActionReaction
     [SingleInstance]
     public class ActionReactionProcessorCreator : IActionReactionProcessorCreator
     {
-        private readonly ISpellService spellService;
+        private readonly IDbcSpellService spellService;
+        private readonly IContainerProvider provider;
         private readonly Func<IUnitPositionFollower> unitFollower;
-        private readonly Func<IChatEmoteSoundProcessor> chatEmote;
         private readonly Func<IWaypointProcessor> waypointProcessor;
         private readonly Func<IUpdateObjectFollower> update;
         private readonly Func<IPlayerGuidFollower> player;
         private readonly Func<IAuraSlotTracker> auraSlotTracker;
         private readonly Func<IDatabaseProvider> databaseProvider;
+        private readonly IParsingSettings settings;
 
         public ActionReactionProcessorCreator(
-            ISpellService spellService,
+            IDbcSpellService spellService,
+            IContainerProvider provider,
             Func<IUnitPositionFollower> unitFollower,
-            Func<IChatEmoteSoundProcessor> chatEmote,
             Func<IWaypointProcessor> waypointProcessor,
             Func<IUpdateObjectFollower> update,
             Func<IPlayerGuidFollower> player,
             Func<IAuraSlotTracker> auraSlotTracker,
-            Func<IDatabaseProvider> databaseProvider)
+            Func<IDatabaseProvider> databaseProvider,
+            IParsingSettings settings)
         {
             this.spellService = spellService;
+            this.provider = provider;
             this.unitFollower = unitFollower;
-            this.chatEmote = chatEmote;
             this.waypointProcessor = waypointProcessor;
             this.update = update;
             this.player = player;
             this.auraSlotTracker = auraSlotTracker;
             this.databaseProvider = databaseProvider;
+            this.settings = settings;
         }
         
         public ActionReactionProcessor Create()
         {
             var unitFollower = this.unitFollower();
-            var chatEmote = this.chatEmote();
+            var chatEmote = provider.Resolve<IChatEmoteSoundProcessor>((typeof(IParsingSettings), settings));
             var waypointProcessor = this.waypointProcessor();
             var update = this.update();
             var player = this.player();
@@ -65,7 +70,7 @@ namespace WDE.PacketViewer.Processing.Processors.ActionReaction
         public ActionReactionToTextProcessor CreateTextProcessor()
         {
             var unitFollower = this.unitFollower();
-            var chatEmote = this.chatEmote();
+            var chatEmote = provider.Resolve<IChatEmoteSoundProcessor>((typeof(IParsingSettings), settings));
             var waypointProcessor = this.waypointProcessor();
             var update = this.update();
             var player = this.player();

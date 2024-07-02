@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Reflection;
 using Prism.Ioc;
 using WDE.Module.Attributes;
 
@@ -19,20 +20,33 @@ namespace WDE.Module
             RegisterSelf(containerRegistry);
             AutoRegisterByConvention(moduleScope);
         }
-        
-        public override void FinalizeRegistration(IContainerRegistry container)
+
+        protected void RegisterToParentScope(Assembly assembly, IContainerRegistry parentContainer)
         {
-            var typesToRegisterInParent = GetType().Assembly.GetTypes().Where(t => t.IsDefined(typeof(AutoRegisterToParentScopeAttribute), false) && !t.IsAbstract);
+            var typesToRegisterInParent = assembly.GetTypes().Where(t => t.IsDefined(typeof(AutoRegisterToParentScopeAttribute), false) && !t.IsAbstract);
 
             foreach (var register in typesToRegisterInParent)
             {
                 var instance = moduleScope.Resolve(register);
                 foreach (Type @interface in register.GetInterfaces().Union(new[] {register}))
                 {
-                    string name = register + @interface.ToString();
-                    container.RegisterInstance(@interface, instance, name);
+                    var isNonUnique = @interface.IsDefined(typeof(NonUniqueProviderAttribute), true);
+                    if (isNonUnique)
+                    {
+                        string name = register + @interface.ToString();
+                        parentContainer.RegisterInstance(@interface, instance, name);
+                    }
+                    else
+                    {
+                        parentContainer.RegisterInstance(@interface, instance);
+                    }
                 }
             }
+        }
+        
+        public override void FinalizeRegistration(IContainerRegistry container)
+        {
+            RegisterToParentScope(GetType().Assembly, container);
         }
     }
 }

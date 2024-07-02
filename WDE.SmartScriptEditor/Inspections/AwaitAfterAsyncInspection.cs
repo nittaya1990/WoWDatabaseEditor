@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using WDE.Common.Managers;
+using WDE.MVVM.Observable;
 using WDE.SmartScriptEditor.Data;
 using WDE.SmartScriptEditor.Models;
 
@@ -13,17 +14,26 @@ namespace WDE.SmartScriptEditor.Inspections
             
         public AwaitAfterAsyncInspection(ISmartDataManager smartDataManager)
         {
-            foreach (var a in smartDataManager.GetAllData(SmartType.SmartAction))
+            smartDataManager.GetAllData(SmartType.SmartAction).SubscribeAction(Load);
+        }
+
+        private void Load(IReadOnlyList<SmartGenericJsonData> list)
+        {
+            asyncActions.Clear();
+            beginAwait = -1;
+            finalizeAwait = -1;
+            
+            foreach (var a in list)
             {
-                if (a.Flags.HasFlag(ActionFlags.Async))
+                if (a.Flags.HasFlagFast(ActionFlags.Async))
                     asyncActions.Add(a.Id);
-                if (a.Flags.HasFlag(ActionFlags.BeginAwait))
+                if (a.Flags.HasFlagFast(ActionFlags.BeginAwait))
                     beginAwait = a.Id;
-                if (a.Flags.HasFlag(ActionFlags.Await))
+                if (a.Flags.HasFlagFast(ActionFlags.Await))
                     finalizeAwait = a.Id;
             }
         }
-        
+
         public InspectionResult? Inspect(SmartEvent e)
         {
             bool inAwaitBlock = false;
@@ -31,7 +41,7 @@ namespace WDE.SmartScriptEditor.Inspections
             {
                 bool nextIsAwait = i < e.Actions.Count - 1 && e.Actions[i + 1].Id == finalizeAwait;
 
-                if (e.Id == beginAwait)
+                if (e.Actions[i].Id == beginAwait)
                     inAwaitBlock = true;
 
                 if ((inAwaitBlock || nextIsAwait) && !asyncActions.Contains(e.Actions[i].Id))
@@ -39,7 +49,7 @@ namespace WDE.SmartScriptEditor.Inspections
                     {
                         Severity = DiagnosticSeverity.Warning,
                         Message = "Action is not asynchronous, it can not be awaited. " + (nextIsAwait ? "Next 'wait for previous' will not do anything." : "Being in await block does nothing."),
-                        Line = e.Actions[i].LineId
+                        Line = e.Actions[i].VirtualLineId
                     };
             }
 

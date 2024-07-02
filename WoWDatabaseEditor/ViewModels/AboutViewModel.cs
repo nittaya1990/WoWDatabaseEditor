@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Windows.Input;
+using AsyncAwaitBestPractices.MVVM;
 using Prism.Commands;
 using WDE.Common.CoreVersion;
 using WDE.Common.Database;
@@ -12,6 +13,7 @@ using WDE.Common.History;
 using WDE.Common.Managers;
 using WDE.Common.Services;
 using WDE.Common.Types;
+using WDE.Common.Utils;
 using WDE.Module.Attributes;
 using WoWDatabaseEditorCore.CoreVersion;
 
@@ -28,9 +30,10 @@ namespace WoWDatabaseEditorCore.ViewModels
         public AboutViewModel(IApplicationVersion applicationVersion,
             IDatabaseProvider databaseProvider, 
             IDbcStore dbcStore,
-            IConfigureService settings,
+            Lazy<IConfigureService> settings,
             ICurrentCoreVersion coreVersion,
-            IRemoteConnectorService remoteConnectorService)
+            IRemoteConnectorService remoteConnectorService,
+            ISourceCodePathService sourceCodePathService)
         {
             this.applicationVersion = applicationVersion;
             this.databaseProvider = databaseProvider;
@@ -49,13 +52,17 @@ namespace WoWDatabaseEditorCore.ViewModels
                 "Database connection", 
                 "WoW Database Editor is database editor by design. It stores all data and loads things from wow database. Therefore to activate all features you have to provide wow compatible database connection settings."));
 
-            ConfigurationChecks.Add(new ConfigurationCheckup(remoteConnectorService.IsConnected, 
-                "Remote SOAP connection", 
-                "WDE can invoke reload commands for you for faster work. To enable that, you have to enable SOAP connection in your worldserver configuration and provide details in the settings."));
+            ConfigurationChecks.Add(new ConfigurationCheckup(remoteConnectorService.HasValidSettings,
+                "Remote connection",
+                "WDE can invoke reload commands for you for faster work. To enable that, you have to enable remote connection in your worldserver configuration and provide details in the settings."));
+
+            ConfigurationChecks.Add(new ConfigurationCheckup(sourceCodePathService.SourceCodePaths.Count > 0,
+                "Source code integration",
+                "WDE can integrate with source code of your server. Find Anywhere can search in the source code."));
 
             AllConfigured = ConfigurationChecks.All(s => s.Fulfilled);
 
-            OpenSettingsCommand = new DelegateCommand(settings.ShowSettings);
+            OpenSettingsCommand = new DelegateCommand(() => settings.Value.ShowSettings());
         }
 
         public ICommand OpenSettingsCommand { get; }
@@ -74,7 +81,7 @@ namespace WoWDatabaseEditorCore.ViewModels
         public ICommand Copy { get; } = new DisabledCommand();
         public ICommand Cut { get; } = new DisabledCommand();
         public ICommand Paste { get; } = new DisabledCommand();
-        public ICommand Save { get; } = new DisabledCommand();
+        public IAsyncCommand Save { get; } = AlwaysDisabledAsyncCommand.Command;
         public AsyncAwaitBestPractices.MVVM.IAsyncCommand? CloseCommand { get; set; } = null;
         public bool CanClose { get; } = true;
         public bool IsModified { get; } = false;

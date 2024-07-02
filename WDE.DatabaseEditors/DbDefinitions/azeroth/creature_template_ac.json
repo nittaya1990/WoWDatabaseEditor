@@ -93,7 +93,7 @@
         {
           "name": "Faction",
           "db_column_name": "faction",
-          "value_type": "FactionParameter"
+          "value_type": "FactionTemplateParameter"
         },
         {
           "name": "Min level",
@@ -224,13 +224,13 @@
           "name": "Emote",
           "db_column_name": "emote",
           "foreign_table": "creature_template_addon",
-          "value_type": "EmoteParameter"
+          "value_type": "EmoteStateParameter"
         },
         {
-          "name": "Is large",
-          "db_column_name": "isLarge",
+          "name": "Visibility Distance Type",
+          "db_column_name": "visibilityDistanceType",
           "foreign_table": "creature_template_addon",
-          "value_type": "BoolParameter"
+          "value_type": "VisibilityDistanceTypeParameter"
         },
         {
           "name": "Auras",
@@ -257,6 +257,16 @@
         {
           "name": "Run speed",
           "db_column_name": "speed_run",
+          "value_type": "float"
+        },
+        {
+          "name": "Swim speed",
+          "db_column_name": "speed_swim",
+          "value_type": "float"
+        },
+        {
+          "name": "Flight speed",
+          "db_column_name": "speed_flight",
           "value_type": "float"
         },
         {
@@ -309,6 +319,11 @@
     {
       "group_name": "Combat",
       "fields": [
+        {
+          "name": "Detection range",
+          "db_column_name": "detection_range",
+          "value_type": "float"
+        },
         {
           "name": "Damage school",
           "db_column_name": "dmgschool",
@@ -365,39 +380,44 @@
           "value_type": "float"
         },
         {
+          "name": "Experience mod",
+          "db_column_name": "ExperienceModifier",
+          "value_type": "float"
+        },
+        {
           "is_meta": true,
           "name": "Effective health",
-          "expression": "str(ceil(GetHP(this.minlevel, this.unit_class, this.exp) * this.HealthModifier)) + ' - ' + str(ceil(GetHP(this.maxlevel, this.unit_class, this.exp) * this.HealthModifier))",
+          "meta": "expression:str(ceil(GetHP(this.minlevel, this.unit_class, this.exp) * this.HealthModifier)) + ' - ' + str(ceil(GetHP(this.maxlevel, this.unit_class, this.exp) * this.HealthModifier))",
           "read_only": true
         },
         {
           "is_meta": true,
           "name": "Effective mana",
-          "expression": "str(ceil(GetMana(this.minlevel, this.unit_class) * this.ManaModifier)) + ' - ' + str(ceil(GetMana(this.maxlevel, this.unit_class) * this.ManaModifier))",
+          "meta": "expression:str(ceil(GetMana(this.minlevel, this.unit_class) * this.ManaModifier)) + ' - ' + str(ceil(GetMana(this.maxlevel, this.unit_class) * this.ManaModifier))",
           "read_only": true
         },
         {
           "is_meta": true,
           "name": "Effective armor",
-          "expression": "str(ceil(GetArmor(this.minlevel, this.unit_class) * this.ArmorModifier)) + ' - ' + str(ceil(GetArmor(this.maxlevel, this.unit_class) * this.ArmorModifier))",
+          "meta": "expression:str(ceil(GetArmor(this.minlevel, this.unit_class) * this.ArmorModifier)) + ' - ' + str(ceil(GetArmor(this.maxlevel, this.unit_class) * this.ArmorModifier))",
           "read_only": true
         },
         {
           "is_meta": true,
           "name": "Effective damage",
-          "expression": "str(GetDamage(this.minlevel, this.unit_class, this.exp) * this.DamageModifier) + ' - ' + str(GetDamage(this.maxlevel, this.unit_class, this.exp) * this.DamageModifier * 3 / 2)",
+          "meta": "expression:str(GetDamage(this.minlevel, this.unit_class, this.exp) * this.DamageModifier) + ' - ' + str(GetDamage(this.maxlevel, this.unit_class, this.exp) * this.DamageModifier * 3 / 2)",
           "read_only": true
         },
         {
           "is_meta": true,
           "name": "AP bonus",
-          "expression": "str(GetAPBonus(this.minlevel, this.unit_class)) + ' - ' + str(GetAPBonus(this.maxlevel, this.unit_class))",
+          "meta": "expression:str(GetAPBonus(this.minlevel, this.unit_class)) + ' - ' + str(GetAPBonus(this.maxlevel, this.unit_class))",
           "read_only": true
         },
         {
           "is_meta": true,
           "name": "Ranged AP bonus",
-          "expression": "str(GetRangeAPBonus(this.minlevel, this.unit_class)) + ' - ' + str(GetRangeAPBonus(this.maxlevel, this.unit_class))",
+          "meta": "expression:str(GetRangeAPBonus(this.minlevel, this.unit_class)) + ' - ' + str(GetRangeAPBonus(this.maxlevel, this.unit_class))",
           "read_only": true
         }
       ]
@@ -438,7 +458,7 @@
         {
           "name": "Mechanic immune mask",
           "db_column_name": "mechanic_immune_mask",
-          "value_type": "SpellMechanicParameter"
+          "value_type": "SpellMechanicMaskParameter"
         },
         {
           "name": "School immune mask",

@@ -30,11 +30,21 @@ namespace WDE.Common.Services
         bool BringEditorToFront { get; }
     }
 
+    [NonUniqueProvider]
+    public interface IRawReverseRemoteCommand
+    {
+        Task Invoke(string raw);
+        bool BringEditorToFront { get; }
+    }
+
     public interface ICommandArguments
     {
         int LeftArguments { get; }
         int TotalArguments { get; }
+        string TakeRestArguments { get; }
         bool TryGetUint(out uint number);
+        bool TryGetInt(out int number);
+        bool TryGetFloat(out float number);
         bool TryGetString(out string word);
     }
     

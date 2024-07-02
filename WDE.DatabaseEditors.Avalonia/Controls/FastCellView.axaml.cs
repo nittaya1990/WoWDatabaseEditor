@@ -1,7 +1,6 @@
 using System;
 using System.Globalization;
 using System.Reactive.Disposables;
-using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -11,6 +10,7 @@ using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Threading;
+using Prism.Commands;
 
 namespace WDE.DatabaseEditors.Avalonia.Controls
 {
@@ -18,14 +18,6 @@ namespace WDE.DatabaseEditors.Avalonia.Controls
     {
         private bool showChooseButton;
         public static readonly DirectProperty<FastCellView, bool> ShowChooseButtonProperty = AvaloniaProperty.RegisterDirect<FastCellView, bool>("ShowChooseButton", o => o.ShowChooseButton, (o, v) => o.ShowChooseButton = v);
-        private ICommand? chooseParameterCommand;
-        public static readonly DirectProperty<FastCellView, ICommand?> ChooseParameterCommandProperty = AvaloniaProperty.RegisterDirect<FastCellView, ICommand?>("ChooseParameterCommand", o => o.ChooseParameterCommand, (o, v) => o.ChooseParameterCommand = v);
-        
-        public ICommand? ChooseParameterCommand
-        {
-            get => chooseParameterCommand;
-            set => SetAndRaise(ChooseParameterCommandProperty, ref chooseParameterCommand, value);
-        }
 
         public bool ShowChooseButton
         {
@@ -38,8 +30,8 @@ namespace WDE.DatabaseEditors.Avalonia.Controls
         {
             base.OnApplyTemplate(e);
 
-            partPanel = e.NameScope.Find<Panel>("PART_Panel");
-            partText = e.NameScope.Find<TextBlock>("PART_text");
+            partPanel = e.NameScope.Get<Panel>("PART_Panel");
+            partText = e.NameScope.Get<TextBlock>("PART_text");
             
             if (!isReadOnly)
                 partText.Cursor = new Cursor(StandardCursorType.Ibeam);
@@ -60,6 +52,17 @@ namespace WDE.DatabaseEditors.Avalonia.Controls
             }
         }
 
+        protected override bool OpenForEditing()
+        {
+            var open = base.OpenForEditing();
+            if (open)
+            {
+                if (partText != null)
+                    partText.IsVisible = false;
+            }
+            return open;
+        }
+
         protected override Control CreateEditingControl()
         {
             textBox = new TextBox()
@@ -73,19 +76,19 @@ namespace WDE.DatabaseEditors.Avalonia.Controls
             textBox.MinHeight = 0;
             textBox.Margin = new Thickness(partText?.Margin.Left ?? 0,partText?.Margin.Top ?? 0, 0, 0);
             textBox.Padding = new Thickness(partText?.Padding.Left ?? 0,partText?.Padding.Top ?? 0, 0, 0);
+            textBox.KeyBindings.Add(new KeyBinding()
+            {
+                Gesture = new KeyGesture(Key.Enter),
+                Command = new DelegateCommand(() => EndEditing(true))
+            });
+            textBox.KeyBindings.Add(new KeyBinding()
+            {
+                Gesture = new KeyGesture(Key.Escape),
+                Command = new DelegateCommand(() => EndEditing(false))
+            });
             var disposable1 = textBox.AddDisposableHandler(KeyDownEvent, (sender, args) =>
             {
                 HandleMoveLeftRightUpBottom(args, false);
-                if (args.Key is Key.Return or Key.Enter)
-                {
-                    EndEditing();
-                    args.Handled = true;
-                }
-                else if (args.Key == Key.Escape)
-                {
-                    EndEditing(false);
-                    args.Handled = true;
-                }
             });
             var disposable2 = textBox.AddDisposableHandler(LostFocusEvent, (sender, args) =>
             {
@@ -100,7 +103,23 @@ namespace WDE.DatabaseEditors.Avalonia.Controls
         {
             if (textBox != null && commit)
             {
-                if (Value is long)
+                if (DataContext is ViewModels.SingleRow.SingleRecordDatabaseCellViewModel singleRecordViewModel)
+                {
+                    singleRecordViewModel.UpdateFromString(textBox.Text ?? "");
+                }
+                else if (DataContext is ViewModels.OneToOneForeignKey.SingleRecordDatabaseCellViewModel oneToOneRecordViewModel)
+                {
+                    oneToOneRecordViewModel.UpdateFromString(textBox.Text ?? "");
+                }
+                else if (DataContext is ViewModels.MultiRow.DatabaseCellViewModel multiRowViewModel)
+                {
+                    multiRowViewModel.UpdateFromString(textBox.Text ?? "");
+                }
+                else if (DataContext is ViewModels.Template.DatabaseCellViewModel templateViewModel)
+                {
+                    templateViewModel.UpdateFromString(textBox.Text ?? "");
+                }
+                else if (Value is long)
                 {
                     if (long.TryParse(textBox.Text, out var value))
                         Value = value;
@@ -111,7 +130,7 @@ namespace WDE.DatabaseEditors.Avalonia.Controls
                         Value = value;
                 }
                 else
-                    Value = textBox.Text;
+                    Value = textBox.Text ?? "";
             }
 
             textBox = null;
@@ -129,15 +148,13 @@ namespace WDE.DatabaseEditors.Avalonia.Controls
                 {
                     if (textBox == null)
                         return;
-                    textBox.RaiseEvent(new TextInputEventArgs
-                    {
-                        Device = e.Device,
-                        Handled = false,
-                        Text = e.Text,
-                        Route = e.Route,
-                        RoutedEvent = e.RoutedEvent,
-                        Source = textBox
-                    });
+                    var args = new TextInputEventArgs();
+                    args.Handled = false;
+                    args.Text = e.Text;
+                    args.Route = e.Route;
+                    args.RoutedEvent = e.RoutedEvent;
+                    args.Source = textBox;
+                    textBox.RaiseEvent(args);
                 }, TimeSpan.FromMilliseconds(1));
             }
         }
@@ -150,9 +167,9 @@ namespace WDE.DatabaseEditors.Avalonia.Controls
             Value = text;
         }
 
-        public override void DoCopy(IClipboard clipboard)
+        public override void DoCopy()
         {
-            clipboard.SetTextAsync(Value.ToString()!);
+            TopLevel.GetTopLevel(this)?.Clipboard?.SetTextAsync(Value.ToString()!);
         }
     }
 }

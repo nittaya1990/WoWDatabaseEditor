@@ -1,0 +1,27 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:serverExecutable="clr-namespace:WoWDatabaseEditorCore.Services.ServerExecutable;assembly=WoWDatabaseEditorCore"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:DataType="serverExecutable:ServerExecutableConfigurationPanelViewModel"
+             x:Class="WoWDatabaseEditorCore.Avalonia.Services.ServerExecutable.ServerExecutableConfigurationPanelView">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Grid.IsSharedSizeScope="True">
+        <StackPanel>
+            <SettingItem Header="World server path">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Command="{CompiledBinding PickWorldPath}" Content="..." />
+                    <TextBox Text="{CompiledBinding WorldServerPath}"
+                             MinWidth="250" />
+                </DockPanel>
+            </SettingItem>
+            <SettingItem Header="Auth server path">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Command="{CompiledBinding PickAuthPath}" Content="..." />
+                    <TextBox Text="{CompiledBinding AuthServerPath}"
+                             MinWidth="250" />
+                </DockPanel>
+            </SettingItem>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

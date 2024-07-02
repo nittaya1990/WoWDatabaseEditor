@@ -1,11 +1,16 @@
 ﻿using System;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using AvaloniaStyles.Controls;
+using Prism.Commands;
+using WDE.Common.Avalonia;
 using WDE.Common.Avalonia.Controls;
+using WoWDatabaseEditorCore.Services.ItemFromListSelectorService;
 
 namespace WoWDatabaseEditorCore.Avalonia.Services.ItemFromListSelectorService
 {
@@ -22,41 +27,28 @@ namespace WoWDatabaseEditorCore.Avalonia.Services.ItemFromListSelectorService
         private void InitializeComponent()
         {
             AvaloniaXamlLoader.Load(this);
-        }
-
-        private void InputElement_OnKeyDown(object? sender, KeyEventArgs e)
-        {
-            // add missing functionality - space on the item (un)checks the checkbox
-            if (e.Key == Key.Space && sender is GridView gridView)
+            KeyBindings.Add(new KeyBinding()
             {
-                ListBox? list = gridView.ListBoxImpl;
-                if (list?.SelectedItem == null)
-                    return;
-
-                var selected = list.ItemContainerGenerator.ContainerFromIndex(list.SelectedIndex);
-
-                if (selected == null)
-                    return;
-
-                var checkBox = selected.FindDescendantOfType<CheckBox>();
-
-                if (checkBox != null)
-                    checkBox.IsChecked = !checkBox.IsChecked;
-            }
+                Command = new DelegateCommand(() =>
+                {
+                    this.GetControl<TextBox>("SearchBox").Focus();
+                }),
+                Gesture = new KeyGesture(Key.F, KeyGestures.CommandModifier)
+            });
         }
-
+        
         // quality of life feature: arrow down in searchbox focuses first element
         private void SearchBox_OnKeyDown(object? sender, KeyEventArgs e)
         {
             if (e.Key == Key.Down)
             {
-                GridView gridView = this.FindControl<GridView>("GridView");
-                if (gridView == null || gridView.ListBoxImpl == null)
+                GridView gridView = this.GetControl<GridView>("GridView");
+                if (gridView.ListBoxImpl == null)
                     return;
 
                 if (gridView.ListBoxImpl.SelectedItem == null)
                     gridView.ListBoxImpl.SelectedIndex = 0;
-                gridView.ListBoxImpl.ItemContainerGenerator?.ContainerFromIndex(gridView.ListBoxImpl.SelectedIndex)?.Focus();
+                gridView.ListBoxImpl.ContainerFromIndex(gridView.ListBoxImpl.SelectedIndex)?.Focus();
             }
         }
     }

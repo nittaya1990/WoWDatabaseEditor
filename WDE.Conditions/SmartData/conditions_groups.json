@@ -26,7 +26,8 @@
             "CONDITION_AREAID",
             "CONDITION_ZONEID",
             "CONDITION_TERRAIN_SWAP",
-            "CONDITION_DIFFICULTY_ID"
+            "CONDITION_DIFFICULTY_ID",
+            "CONDITION_SCENARIO_STEP"
         ]
     },
     {
@@ -41,10 +42,11 @@
             "CONDITION_OBJECT_ENTRY_GUID_MASTER",
             "CONDITION_TYPE_MASK_MASTER",
             "CONDITION_CREATURE_FAMILY",
-            "CONDITION_CREATURE_SUBFAMILY",
             "CONDITION_CREATURE_TYPE",
             "CONDITION_STAND_STATE",
-            "CONDITION_CHARMED"
+            "CONDITION_CHARMED",
+            "CONDITION_PRIVATE_OBJECT",
+            "CONDITION_STRING_ID"
         ]
     },
     {
@@ -52,7 +54,8 @@
         "group_members": [
             "CONDITION_WORLD_STATE",
             "CONDITION_ACTIVE_EVENT",
-            "CONDITION_INSTANCE_INFO"
+            "CONDITION_INSTANCE_INFO",
+            "CONDITION_SCENARIO_STEP"
         ]
     },
     {
@@ -76,7 +79,8 @@
             "CONDITION_SPELL",
             "CONDITION_PET_TYPE",
             "CONDITION_TAXI",
-            "CONDITION_GAMEMASTER"
+            "CONDITION_GAMEMASTER",
+            "CONDITION_PLAYER_CONDITION"
         ]
     },
     {
@@ -102,6 +106,12 @@
             "CONDITION_PHASEID",
             "CONDITION_RELATION_TO",
             "CONDITION_REACTION_TO"
+        ]
+    },
+    {
+        "name":"Scene",
+        "group_members":[
+            "CONDITION_SCENE_IN_PROGRESS"
         ]
     }
 ]

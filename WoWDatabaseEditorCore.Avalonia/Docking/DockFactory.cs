@@ -4,15 +4,16 @@ using Avalonia.Data;
 using Dock.Avalonia.Controls;
 using Dock.Model.Controls;
 using Dock.Model.Core;
-using Dock.Model.ReactiveUI;
-using Dock.Model.ReactiveUI.Controls;
+using Dock.Model.Mvvm;
+using Dock.Model.Mvvm.Controls;
+using WDE.Common.Windows;
 
 namespace WoWDatabaseEditorCore.Avalonia.Docking
 {
     public class DockFactory : Factory
     {
-        public override IDocumentDock CreateDocumentDock() => new FocusAwareDocumentDock() {CanFloat = false};
-        public override IToolDock CreateToolDock() => new FocusAwareToolDock() {CanFloat = false};
+        public override IDocumentDock CreateDocumentDock() => new FocusAwareDocumentDock() {CanFloat = true};
+        public override IToolDock CreateToolDock() => new FocusAwareToolDock() {CanFloat = true};
 
         public void AddToolAsDocument(IDock layout, AvaloniaToolDockWrapper tool)
         {
@@ -38,9 +39,11 @@ namespace WoWDatabaseEditorCore.Avalonia.Docking
             AddDockable(documentsDock, document);
         }
         
-        public void AddTool(IDock layout, AvaloniaToolDockWrapper toolWrapper)
+        public void AddTool(IDock layout, AvaloniaToolDockWrapper toolWrapper, ToolPreferedPosition position)
         {
             var toolDock = FindDockable(layout, dockable => dockable is ToolDock) as ToolDock;
+            if (position == ToolPreferedPosition.Left)
+                toolDock = null;
             if (toolDock == null)
             {
                 toolDock = new ToolDock
@@ -48,10 +51,20 @@ namespace WoWDatabaseEditorCore.Avalonia.Docking
                     Id = "tool",
                     Title = "Tools",
                     Proportion = 0.2f,
-                    CanFloat = false
+                    CanFloat = true
                 };
-                AddDockable(layout, CreateProportionalDockSplitter());
-                AddDockable(layout, toolDock);
+                if (position == ToolPreferedPosition.Left)
+                {
+                    if (layout is ProportionalDock dock)
+                        dock.Orientation = Orientation.Horizontal;
+                    InsertDockable(layout, CreateProportionalDockSplitter(), 0);
+                    InsertDockable(layout, toolDock, 0);
+                }
+                else
+                {
+                    AddDockable(layout, CreateProportionalDockSplitter());
+                    AddDockable(layout, toolDock);
+                }
             }
             
             AddDockable(toolDock, toolWrapper);
@@ -68,7 +81,7 @@ namespace WoWDatabaseEditorCore.Avalonia.Docking
                 Title = "MainLayout",
                 Proportion = 1,
                 IsCollapsable = false,
-                CanFloat = false,
+                CanFloat = true,
                 Orientation = Orientation.Horizontal,
                 ActiveDockable = null,
                 VisibleDockables = CreateList<IDockable>
@@ -87,17 +100,18 @@ namespace WoWDatabaseEditorCore.Avalonia.Docking
 
         public override void InitLayout(IDockable layout)
         {
-            this.ContextLocator = new Dictionary<string, Func<object>>
+            this.ContextLocator = new Dictionary<string, Func<object?>>
             {
             };
 
-            this.HostWindowLocator = new Dictionary<string, Func<IHostWindow>>
+            this.HostWindowLocator = new Dictionary<string, Func<IHostWindow?>>
             {
                 [nameof(IDockWindow)] = () =>
                 {
                     var hostWindow = new HostWindow()
                     {
-                        [!HostWindow.TitleProperty] = new Binding("ActiveDockable.Title")
+                        [!HostWindow.TitleProperty] = new Binding("ActiveDockable.Title"),
+                        DataTemplates = { new PersistentDockDataTemplate() }
                     };
                     return hostWindow;
                 }

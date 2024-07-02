@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Text;
@@ -90,11 +91,10 @@ public class UpdateHistoryViewModel : ObservableBase
     }
     
     private readonly Func<IUpdateFieldsHistory> historyCreator;
-    private readonly PrettyFlagParameter prettyFlagParameter;
     private IUpdateFieldsHistory? currentHistory;
     private UniversalGuid? currentGuid;
 
-    public Func<string, CancellationToken, Task<IEnumerable<object>>> FindGuidAsyncPopulator { get; }
+    public Func<IEnumerable, string, CancellationToken, Task<IEnumerable>> FindGuidAsyncPopulator { get; }
     public ObservableCollection<UniversalGuid> Guids { get; } = new();
     public ObservableCollection<IUpdateItem> CurrentValues { get; } = new ObservableCollection<IUpdateItem>();
 
@@ -121,7 +121,6 @@ public class UpdateHistoryViewModel : ObservableBase
         IObservable<PacketViewModel?> selectedPacket)
     {
         this.historyCreator = historyCreator;
-        this.prettyFlagParameter = prettyFlagParameter;
 
         JumpToPacket = goToPacket;
         CurrentGuid = currentGuid;
@@ -132,18 +131,18 @@ public class UpdateHistoryViewModel : ObservableBase
             if (currentHistory == null || currentGuid == null || currentPacket == null)
                 return;
             
-            var objectState = currentHistory.GetState(currentGuid, currentPacket.Id);
+            var objectState = currentHistory.GetState(currentGuid.Value, currentPacket.Id);
             CurrentValues.Add(new UpdateItem<SniffObjectState>(currentPacket.Id, "STATE", objectState.current, objectState.previous, objectState.next, null));
 
             if (objectState.current.value is SniffObjectState.Spawned or SniffObjectState.InRange)
             {
-                foreach (var intValue in currentHistory.IntValues(currentGuid, currentPacket.Id))
+                foreach (var intValue in currentHistory.IntValues(currentGuid.Value, currentPacket.Id))
                 {
                     var parameter = prettyFlagParameter.GetPrettyParameter(intValue.key);
                     CurrentValues.Add(new UpdateItem<long>(currentPacket.Id, intValue.key, intValue.current, intValue.previous, intValue.next, parameter));
                 }
             
-                foreach (var floatValue in currentHistory.FloatValues(currentGuid, currentPacket.Id))
+                foreach (var floatValue in currentHistory.FloatValues(currentGuid.Value, currentPacket.Id))
                     CurrentValues.Add(new UpdateItem<float>(currentPacket.Id, floatValue.Item1, floatValue.Item2, floatValue.previous, floatValue.next, null));
             }
 
@@ -167,7 +166,7 @@ public class UpdateHistoryViewModel : ObservableBase
             RaisePropertyChanged(nameof(CurrentGuid));
         }));
 
-        FindGuidAsyncPopulator = (s, token) =>
+        FindGuidAsyncPopulator = (items, s, token) =>
         {
             return Task.Run(() =>
             {
@@ -179,7 +178,7 @@ public class UpdateHistoryViewModel : ObservableBase
                     if (guid.ToWowParserString().Contains(s))
                         result.Add(guid);
                 }
-                return (IEnumerable<object>)result;
+                return (IEnumerable)result;
             }, token);
         };
     }
@@ -188,8 +187,8 @@ public class UpdateHistoryViewModel : ObservableBase
     {
         currentHistory = historyCreator();
         foreach (var p in packets)
-            currentHistory.Process(p.Packet);
-        currentHistory.Finalize();
+            currentHistory.Process(ref p.Packet);
+        currentHistory.Finish();
         
         Guids.Clear();
         Guids.AddRange(currentHistory.AllGuids);

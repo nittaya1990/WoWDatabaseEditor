@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using System;
+using System.Linq;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Threading;
@@ -11,13 +12,23 @@ namespace WDE.Common.Avalonia.Utils
     public class FocusUtils
     {
         public static readonly AvaloniaProperty<bool> FocusFirstProperty =
-            AvaloniaProperty.RegisterAttached<FocusUtils, IControl, bool>("FocusFirst");
+            AvaloniaProperty.RegisterAttached<FocusUtils, Control, bool>("FocusFirst");
         
-        public static bool GetFocusFirst(IControl control) => control.GetValue(FocusFirstProperty);
-        public static void SetFocusFirst(IControl control, bool value)
+        public static bool GetFocusFirst(Control control) => (bool?)control.GetValue(FocusFirstProperty) ?? false;
+        public static void SetFocusFirst(Control control, bool value)
         {
             control.SetValue(FocusFirstProperty, value);
         }
+        
+        public static readonly AvaloniaProperty<NavigationMethod> FocusFirstMethodProperty =
+            AvaloniaProperty.RegisterAttached<FocusUtils, Control, NavigationMethod>("FocusFirstMethod", NavigationMethod.Tab);
+        
+        public static NavigationMethod GetFocusFirstMethod(Control control) => (NavigationMethod?)control.GetValue(FocusFirstMethodProperty) ?? NavigationMethod.Tab;
+        public static void SetFocusFirstMethod(Control control, NavigationMethod value)
+        {
+            control.SetValue(FocusFirstMethodProperty, value);
+        }
+
 
         static FocusUtils()
         {
@@ -36,24 +47,48 @@ namespace WDE.Common.Avalonia.Utils
             });
         }
 
-        private static bool FocusFirstFocusableChild(IInputElement? visual)
+        public static bool FocusFirstFocusableChild(IInputElement? visual)
         {
             if (visual == null)
                 return false;
 
+            var thisAsControl = visual as Control;
+            if (thisAsControl == null)
+                return false;
+
             if (visual.Focusable)
             {
-                FocusManager.Instance.Focus(visual, NavigationMethod.Tab);
+                visual.Focus(GetFocusFirstMethod((Control)visual));
+                if (visual is TextBox tb)
+                {
+                    tb.SelectAll();
+                }
                 return true;
             }
             else
             {
-                foreach (var item in visual.VisualChildren)
+                var navigationMethod = KeyboardNavigation.GetTabNavigation(thisAsControl);
+                if (navigationMethod == KeyboardNavigationMode.Local)
                 {
-                    if (item is IInputElement elem)
+                    foreach (var item in thisAsControl.GetVisualChildren().OrderBy(
+                                 child => KeyboardNavigation.GetTabIndex((IInputElement)child)))
                     {
-                        if (FocusFirstFocusableChild(elem))
-                            return true;
+                        if (item is IInputElement elem)
+                        {
+                            if (FocusFirstFocusableChild(elem))
+                                return true;
+                        }
+                    }
+                }
+                else
+                {
+                    foreach (var item in thisAsControl.GetVisualChildren())
+                    {
+                        if (item is IInputElement elem)
+                        {
+                            if (FocusFirstFocusableChild(elem))
+                                return true;
+                        }
                     }
                 }
             }

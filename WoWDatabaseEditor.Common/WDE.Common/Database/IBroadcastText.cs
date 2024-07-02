@@ -12,9 +12,31 @@ namespace WDE.Common.Database
         uint EmoteDelay1 { get; }
         uint EmoteDelay2 { get; }
         uint EmoteDelay3 { get; }
+        uint Sound1 { get; }
+        uint Sound2 { get; }
         uint SoundEntriesId { get; }
         uint EmotesId { get; }
         uint Flags { get; }
+
+        int ChatTypeId => 0; // used in mangos, but helpful there
+    }
+
+    public static class BroadcastTextExtensions
+    {
+        public static string? FirstText(this IBroadcastText self)
+        {
+            if (!string.IsNullOrEmpty(self.Text))
+                return self.Text;
+            return self.Text1;
+        }
+    }
+    
+    public interface IBroadcastTextLocale
+    {
+        uint Id { get; }
+        string Locale { get; }
+        string? Text { get; }
+        string? Text1 { get; }
     }
 
     public class AbstractBroadcastText : IBroadcastText
@@ -29,6 +51,8 @@ namespace WDE.Common.Database
         public uint EmoteDelay1 { get; init; }
         public uint EmoteDelay2 { get; init; }
         public uint EmoteDelay3 { get; init; }
+        public uint Sound1 { get; init; }
+        public uint Sound2 { get; init; }
         public uint SoundEntriesId { get; init; }
         public uint EmotesId { get; init; }
         public uint Flags { get; init; }

@@ -2,11 +2,18 @@ using System;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Prism.Commands;
+using WDE.Common.Avalonia.Utils;
+using WDE.Common.Parameters;
 using WDE.Common.Utils;
+using WDE.MVVM;
+using WDE.MVVM.Observable;
+using WDE.Parameters.Models;
 
 namespace WDE.Common.Avalonia.Controls
 {
@@ -48,15 +55,31 @@ namespace WDE.Common.Avalonia.Controls
             {
                 Dispatcher.UIThread.Post(() =>
                 {
-                    ParameterTextBox tb = this.FindDescendantOfType<ParameterTextBox>();
+                    ParameterTextBox? tb = this.FindDescendantOfType<ParameterTextBox>();
                     if (tb != null)
-                        FocusManager.Instance.Focus(tb, NavigationMethod.Tab);
+                        tb.Focus(NavigationMethod.Tab);
                 });
             }
         }
 
         public ParameterValueHolderView()
         {
+            var pickerService = ViewBind.ResolveViewModel<IParameterPickerService>();
+            PickCommand = new AsyncAutoCommand(async () =>
+            {
+                if (DataContext is IParameterValueHolder<long> context)
+                {
+                    var result = await pickerService.PickParameter(context.Parameter, context.Value);
+                    if (result.ok)
+                        context.Value = result.value;
+                }
+                if (DataContext is IParameterValueHolder<string> stringContext)
+                {
+                    var result = await pickerService.PickParameter(stringContext.Parameter, stringContext.Value);
+                    if (result.ok)
+                        stringContext.Value = result.value ?? "";
+                }
+            });
             PickSpecial = new AsyncAutoCommand(async () =>
             {
                 if (SpecialCommand == null)

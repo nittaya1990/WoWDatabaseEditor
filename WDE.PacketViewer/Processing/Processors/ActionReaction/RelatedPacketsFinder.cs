@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using WDE.Common;
 using WDE.Common.Services.MessageBox;
 using WDE.Module.Attributes;
 using WDE.PacketViewer.Services;
@@ -14,7 +15,7 @@ namespace WDE.PacketViewer.Processing.Processors.ActionReaction
 {
     public interface IRelatedPacketsFinder
     {
-        IFilterData Find(IList<PacketViewModel> packets, IList<PacketViewModel> unfilteredPackets, int start, CancellationToken token);
+        IFilterData Find(ulong gameBuild, IList<PacketViewModel> packets, IList<PacketViewModel> unfilteredPackets, int start, CancellationToken token);
     }
     
     [AutoRegister]
@@ -33,14 +34,16 @@ namespace WDE.PacketViewer.Processing.Processors.ActionReaction
             
         }
         
-        public IFilterData Find(IList<PacketViewModel> packets, IList<PacketViewModel> unfilteredPackets, int start, CancellationToken token)
+        public IFilterData Find(ulong gameBuild, IList<PacketViewModel> packets, IList<PacketViewModel> unfilteredPackets, int start, CancellationToken token)
         {
             var processor = actionReactionProcessorCreator.Create();
             EventHappened? happenReason = null;
 
+            processor.Initialize(gameBuild);
+            
             foreach (var f in packets)
             {
-                processor.PreProcess(f.Packet);
+                processor.PreProcess(ref f.Packet);
                 if (token.IsCancellationRequested)
                     throw new TaskCanceledException();
             }
@@ -52,11 +55,11 @@ namespace WDE.PacketViewer.Processing.Processors.ActionReaction
                 var packet = packets[index];
 
                 while (j < unfilteredPackets.Count && unfilteredPackets[j].Id < packet.Id)
-                    processor.ProcessUnfiltered(unfilteredPackets[j++].Packet);
+                    processor.ProcessUnfiltered(ref unfilteredPackets[j++].Packet);
 
                 i++;
                 j++;
-                processor.Process(packet.Packet);
+                processor.Process(ref packet.Packet);
                 if (token.IsCancellationRequested)
                     throw new TaskCanceledException();
             }
@@ -103,13 +106,13 @@ namespace WDE.PacketViewer.Processing.Processors.ActionReaction
             foreach (var f in packets)
                 idToPacket[f.Id] = f;
 
-            Console.WriteLine("First event in chain: " + happenReason!.Value.Description + " (" + happenReason.Value.PacketNumber + ")");
+            LOG.LogInformation("First event in chain: {@description} (@number)",  happenReason!.Value.Description, happenReason.Value.PacketNumber);
             Queue<int> reasons = new Queue<int>();
             HashSet<int> usedReasons = new();
             List<int> relatedPacketsWithoutActors = new();
             HashSet<UniversalGuid> relatedActors = new HashSet<UniversalGuid>();
             if (happenReason.Value.MainActor != null)
-                relatedActors.Add(happenReason.Value.MainActor);
+                relatedActors.Add(happenReason.Value.MainActor.Value);
             
             if (idToPacket.TryGetValue(happenReason.Value.PacketNumber, out var pvm) && 
                 (pvm.MainActor == null || !pvm.MainActor.Equals(happenReason.Value.MainActor)))
@@ -138,10 +141,9 @@ namespace WDE.PacketViewer.Processing.Processors.ActionReaction
                     reasons.Enqueue(action.packetId);
                     if (actionHappened!.Value.MainActor != null)
                     {
-                        if (relatedActors.Add(actionHappened.Value.MainActor))
+                        if (relatedActors.Add(actionHappened.Value.MainActor.Value))
                         {
-                            Console.WriteLine("Taking " + actionHappened.Value.MainActor.ToWowParserString() +
-                                              " from packet " + action.packetId + " linked by " + reason);
+                            LOG.LogInformation("Taking {@actor} from packet {@packet} linked by {@reason}", actionHappened.Value.MainActor.ToWowParserString(), action.packetId, reason);
                         }
                     }
 
@@ -156,9 +158,8 @@ namespace WDE.PacketViewer.Processing.Processors.ActionReaction
                         {
                             if (relatedActors.Add(r))
                             {
-                                Console.WriteLine(
-                                    "Taking " + r.ToWowParserString() +
-                                    " form packet " + action.packetId + "(extra) linked by " + reason);
+                                LOG.LogInformation(
+                                    "Taking {@actor} from packet {@packet} (extra) linked by {@reason}", r.ToWowParserString(), action.packetId, reason);
                             }
                         }
                     }

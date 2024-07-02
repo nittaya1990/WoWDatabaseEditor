@@ -3,6 +3,10 @@
              xmlns:avaloniaStyles="clr-namespace:AvaloniaStyles"
              x:Class="AvaloniaStyles.App">
     <Application.Styles>
-        <avaloniaStyles:SystemTheme Mode="Windows10Dark" />
+        <avaloniaStyles:SystemTheme Mode="LightWindows11" />
     </Application.Styles>
+    <Application.Resources>
+        <ResourceDictionary>
+        </ResourceDictionary>
+    </Application.Resources>
 </Application>

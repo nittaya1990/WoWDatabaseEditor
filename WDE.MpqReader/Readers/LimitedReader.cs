@@ -19,11 +19,13 @@ namespace WDE.MpqReader.Readers
 
         private void AssertCanRead(int length)
         {
+            #if DEBUG
             if (length > SizeLeft)
                 throw new IndexOutOfRangeException($"Cannot read {length} bytes, only {SizeLeft} left to read");
+            #endif
         }
     
-        public byte[] ReadBytes(int length)
+        public ReadOnlyMemory<byte> ReadBytes(int length)
         {
             AssertCanRead(length);
             return reader.ReadBytes(length);
@@ -53,6 +55,12 @@ namespace WDE.MpqReader.Readers
             return reader.ReadUInt32();
         }
 
+        public ulong ReadUInt64()
+        {
+            AssertCanRead(8);
+            return reader.ReadUInt64();
+        }
+
         public float ReadFloat()
         {
             AssertCanRead(4);
@@ -75,8 +83,10 @@ namespace WDE.MpqReader.Readers
             get => reader.Offset - startOffset;
             set
             {
-                if (value < 0 || value > size)
-                    throw new IndexOutOfRangeException("Cannot set offset outside of desired range");
+                if (value < 0)
+                    throw new IndexOutOfRangeException("Cannot set offset smaller than desired range");
+                if (value > size)
+                    throw new IndexOutOfRangeException("Cannot set offset bigger than desired range");
                 reader.Offset = value + startOffset;
             }
         }

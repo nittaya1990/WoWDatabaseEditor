@@ -7,7 +7,7 @@ using WDE.Common.DBC;
 
 namespace WDE.DbcStore.FastReader
 {
-    public class FastDbcReader : IEnumerable<IDbcIterator>
+    public class FastDbcReader : IDBC
     {
         public static readonly uint WDBC = 0x43424457;
         private readonly byte[] bytes;
@@ -63,19 +63,49 @@ namespace WDE.DbcStore.FastReader
             {
                 this.offset = offset;
             }
+
+            public uint Key => throw new Exception("DBC does not have a key");
             
             public int GetInt(int field) => BitConverter.ToInt32(parent.bytes, offset + field * 4);
+            
+            public int GetInt(int field, int arrayIndex) => throw new Exception("DBC doesn't have arrays");
 
             public uint GetUInt(int field) => BitConverter.ToUInt32(parent.bytes, offset + field * 4);
+            
+            public uint GetUInt(int field, int index) => throw new Exception("DBC doesn't have arrays");
+            
+            public ushort GetUShort(int field, int index) => throw new Exception("DBC doesn't have arrays");
+
+            public ulong GetULong(int field) => GetUInt(field);
+
+            public ulong GetULong(int field, int arrayIndex) => throw new Exception("DBC doesn't have arrays");
+
+            public long GetLong(int field) => GetInt(field);
+
+            public long GetLong(int field, int arrayIndex) => throw new Exception("DBC doesn't have arrays");
+
+            public sbyte GetSbyte(int field) => (sbyte)GetInt(field);
+
+            public sbyte GetSbyte(int field, int arrayIndex) => throw new Exception("DBC doesn't have arrays");
+
+            public byte GetByte(int field) => (byte)GetUInt(field);
+
+            public byte GetByte(int field, int arrayIndex) => throw new Exception("DBC doesn't have arrays");
+
+            public ushort GetUShort(int field) => (ushort)GetUInt(field);
+
+            public string GetString(int field, int arrayIndex) => throw new Exception("DBC doesn't have arrays");
 
             public float GetFloat(int field) => BitConverter.ToSingle(parent.bytes, offset + field * 4);
+            
+            public float GetFloat(int field, int arrayIndex) => throw new Exception("DBC doesn't have arrays");
 
             public string GetString(int field)
             {
                 var start = (int)(parent.stringsOffsetInBytes + GetUInt(field));
                 var zeroByteIndex = start;
                 while (parent.bytes[zeroByteIndex++] != 0) ;
-                return zeroByteIndex <= start ? "" : Encoding.ASCII.GetString(parent.bytes, start, zeroByteIndex - start - 1);
+                return zeroByteIndex <= start ? "" : Encoding.UTF8.GetString(parent.bytes, start, zeroByteIndex - start - 1);
             }
         }
 
@@ -83,5 +113,7 @@ namespace WDE.DbcStore.FastReader
         {
             return GetEnumerator();
         }
+
+        public uint RecordCount => recordCount;
     }
 }

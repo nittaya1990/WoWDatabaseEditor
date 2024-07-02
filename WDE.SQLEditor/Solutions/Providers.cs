@@ -9,6 +9,7 @@ using WDE.Common.Solution;
 using WDE.Common.Types;
 using WDE.Module.Attributes;
 using WDE.SQLEditor.ViewModels;
+using WDE.SqlQueryGenerator;
 
 namespace WDE.SQLEditor.Solutions
 {
@@ -31,9 +32,9 @@ namespace WDE.SQLEditor.Solutions
     [SingleInstance]
     public class QueryGenerator : ISolutionItemSqlProvider<CustomSqlSolutionItem>
     {
-        public Task<string> GenerateSql(CustomSqlSolutionItem item)
+        public Task<IQuery> GenerateSql(CustomSqlSolutionItem item)
         {
-            return Task.FromResult(item.Query);
+            return Task.FromResult(Queries.Raw(item.Database, item.Query));
         }
     }
     
@@ -49,9 +50,8 @@ namespace WDE.SQLEditor.Solutions
                 var index = projectItem.StringValue.IndexOf(":");
                 var id = projectItem.StringValue.Substring(0, index);
                 var name = projectItem.StringValue.Substring(index + 1);
-                solutionItem = new CustomSqlSolutionItem()
+                solutionItem = new CustomSqlSolutionItem(id)
                 {
-                    Id = id,
                     Name = name,
                     Query = (projectItem.Comment ?? "").Replace("\\n", "\n")
                 };
@@ -61,7 +61,7 @@ namespace WDE.SQLEditor.Solutions
             return false;
         }
 
-        public ISmartScriptProjectItem Serialize(CustomSqlSolutionItem item)
+        public ISmartScriptProjectItem? Serialize(CustomSqlSolutionItem item, bool forMostRecentlyUsed)
         {
             return new AbstractSmartScriptProjectItem()
             {
@@ -125,7 +125,7 @@ namespace WDE.SQLEditor.Solutions
 
         public Task<ISolutionItem?> CreateSolutionItem(string name)
         {
-            return Task.FromResult<ISolutionItem?>(new CustomSqlSolutionItem(){ Id = Guid.NewGuid().ToString(), Name = name});
+            return Task.FromResult<ISolutionItem?>(new CustomSqlSolutionItem(Guid.NewGuid().ToString()){ Name = name});
         }
     }
 }

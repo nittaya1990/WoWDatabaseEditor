@@ -1,9 +1,13 @@
+using WDE.Common.Database;
+
 namespace WDE.SqlQueryGenerator
 {
     public interface IMultiQuery
     {
-        void Add(IQuery query);
+        DataDatabaseType Database { get; }
+        void Add(IQuery? query);
+        void Prepend(IQuery? query);
         IQuery Close();
-        ITable Table(string name);
+        ITable Table(DatabaseTable name);
     }
 }

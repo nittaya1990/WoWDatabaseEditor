@@ -17,10 +17,15 @@ namespace WDE.PacketViewer.Processing.Processors
         {
             this.inner = inner;
         }
-        
-        public bool Process(PacketHolder packet)
+
+        public void Initialize(ulong gameBuild)
         {
-            var results = inner.Process(packet);
+            inner.Initialize(gameBuild);
+        }
+
+        public bool Process(ref readonly PacketHolder packet)
+        {
+            var results = inner.Process(in packet);
             if (results == null)
                 return false;
 

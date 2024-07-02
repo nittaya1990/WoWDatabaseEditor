@@ -1,7 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             d:DataContext="{d:DesignInstance viewModels:TemplateDbTableEditorViewModel}"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:controls="clr-namespace:WDE.DatabaseEditors.Avalonia.Controls"
              xmlns:controls1="clr-namespace:WDE.Common.Avalonia.Controls;assembly=WDE.Common.Avalonia"
@@ -10,71 +9,83 @@
              xmlns:helpers="clr-namespace:WDE.DatabaseEditors.Avalonia.Helpers"
              xmlns:viewModels="clr-namespace:WDE.DatabaseEditors.ViewModels.Template;assembly=WDE.DatabaseEditors"
              xmlns:controls2="clr-namespace:AvaloniaStyles.Controls;assembly=AvaloniaStyles"
+             xmlns:system="clr-namespace:System;assembly=System.Runtime"
+             xmlns:utils="clr-namespace:WDE.Common.Avalonia.Utils;assembly=WDE.Common.Avalonia"
+             xmlns:template="clr-namespace:WDE.DatabaseEditors.Avalonia.Views.Template"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              IsEnabled="{Binding TaskInProgress, Converter={x:Static converters:InverseBoolConverter.Instance}}"
              x:Name="rootWindow"
+             x:DataType="viewModels:TemplateDbTableEditorViewModel"
+             utils:KeyGestureBind.Bindings="{CompiledBinding KeyBindings}"
              x:Class="WDE.DatabaseEditors.Avalonia.Views.Template.TemplateDbTableEditorView">
     <UserControl.Resources>
         <converters:BoolToDoubleConverter WhenFalse="0" WhenTrue="1" x:Key="IsActiveToOpacityConverter" />
         <ItemsPanelTemplate x:Key="HorizontalStackPanelTemplate">
-            <StackPanel Orientation="Horizontal"></StackPanel>
+            <template:HorizontalGridFillPanel ElementWidth="300" LastElementMinWidth="500" />
         </ItemsPanelTemplate>
         <helpers:FieldValueTemplateSelector x:Key="FieldValueTemplateSelector">
             <helpers:FieldValueTemplateSelector.BoolTemplate>
-                <DataTemplate>
-                    <controls:FastBoolCellView Width="300" Margin="0,0,10,0"
-                        ToolTip.Tip="{Binding OriginalValueTooltip}"
-                        Value="{Binding AsBoolValue}"/>
+                <DataTemplate x:DataType="viewModels:DatabaseCellViewModel">
+                    <controls:FastBoolCellView MinWidth="300" Margin="0,0,10,0"
+                        ToolTip.Tip="{CompiledBinding OriginalValueTooltip}"
+                        Value="{CompiledBinding AsBoolValue}"/>
                 </DataTemplate>
             </helpers:FieldValueTemplateSelector.BoolTemplate>
             
             <helpers:FieldValueTemplateSelector.FlagsTemplate>
-                <DataTemplate>
-                    <controls:FastFlagCellView Width="300" Margin="0,0,10,0"
+                <DataTemplate x:DataType="viewModels:DatabaseCellViewModel">
+                    <controls:FastFlagCellView MinWidth="300" Margin="0,0,10,0"
+                                               ToolTip.Tip="{CompiledBinding OriginalValueTooltip}"
                                                Height="24"
-                                               SelectedItem="{Binding OptionValue, Mode=TwoWay}"
-                                               SelectedValue="{Binding AsLongValue, Mode=TwoWay}"
-                                               Flags="{Binding Flags}"
-                                               StringValue="{Binding ParameterValue.String}">
+                                               SelectedItem="{CompiledBinding OptionValue, Mode=TwoWay}"
+                                               SelectedValue="{CompiledBinding AsLongValue, Mode=TwoWay}"
+                                               Flags="{CompiledBinding Flags}"
+                                               StringValue="{CompiledBinding ParameterValue.String}">
                     </controls:FastFlagCellView>
                 </DataTemplate>
             </helpers:FieldValueTemplateSelector.FlagsTemplate>
             <helpers:FieldValueTemplateSelector.ItemsTemplate>
-                <DataTemplate>
-                    <controls:FastItemCellView Width="300" Margin="0,0,10,0"
+                <DataTemplate x:DataType="viewModels:DatabaseCellViewModel">
+                    <controls:FastItemCellView MinWidth="300" Margin="0,0,10,0"
+                                               ToolTip.Tip="{CompiledBinding OriginalValueTooltip}"
                                                Height="24"
-                                               SelectedItem="{Binding OptionValue, Mode=TwoWay}"
-                                               Items="{Binding Items}"
-                                               StringValue="{Binding ParameterValue.String}">
+                                               SelectedItem="{CompiledBinding OptionValue, Mode=TwoWay}"
+                                               Items="{CompiledBinding Items}"
+                                               StringValue="{CompiledBinding ParameterValue.String}">
                     </controls:FastItemCellView>
                 </DataTemplate>
             </helpers:FieldValueTemplateSelector.ItemsTemplate>
-            <helpers:FieldValueTemplateSelector.GenericTemplate>
+            <helpers:FieldValueTemplateSelector.CommandTemplate>
                 <DataTemplate>
-                    <controls:FastCellView Width="300" Margin="0,0,10,0"
-                        ToolTip.Tip="{Binding OriginalValueTooltip}"
-                        Value="{Binding ParameterValue.Value}"
-                        ChooseParameterCommand="{Binding ElementName=rootWindow, Path=DataContext.OpenParameterWindow, Mode=OneTime}"
-                        ShowChooseButton="{Binding ParameterValue.Parameter.HasItems, Mode=OneTime}"
-                        StringValue="{Binding ParameterValue.String}">
+                    <controls:ButtonFastCellView MinWidth="300" />
+                </DataTemplate>
+            </helpers:FieldValueTemplateSelector.CommandTemplate>
+            <helpers:FieldValueTemplateSelector.GenericTemplate>
+                <DataTemplate x:DataType="viewModels:DatabaseCellViewModel">
+                    <controls:FastCellView MinWidth="300" Margin="0,0,10,0"
+                                           ToolTip.Tip="{CompiledBinding OriginalValueTooltip}"
+                                           Value="{Binding ParameterValue.Value}"
+                                           ChooseParameterCommand="{Binding ElementName=rootWindow, Path=DataContext.OpenParameterWindow, Mode=OneTime}"
+                                           ShowChooseButton="{Binding ParameterValue.Parameter.HasItems, Mode=OneTime}"
+                                           StringValue="{CompiledBinding ParameterValue.String}">
                     </controls:FastCellView>
                 </DataTemplate>
             </helpers:FieldValueTemplateSelector.GenericTemplate>
         </helpers:FieldValueTemplateSelector>
         
-        <DataTemplate x:Key="RowHeaderTemplate">
-            <TextBlock Width="300" 
+        <DataTemplate x:Key="RowHeaderTemplate" x:DataType="system:String">
+            <TextBlock MinWidth="300" 
                        Foreground="{DynamicResource TreeViewItem.Header.Foreground.Special}" 
                        TextAlignment="Center" 
                        VerticalAlignment="Center"
                        Text="{Binding ., Mode=OneTime}">
             </TextBlock>
         </DataTemplate>
-        <DataTemplate x:Key="RowTemplate">
-            <DockPanel LastChildFill="True" Classes="alternating" Height="24">
-                <TextBlock ToolTip.Tip="{Binding Help, Mode=OneTime}" Text="{Binding Name, Mode=OneTime}" Width="150" VerticalAlignment="Center" Padding="10,0,10,0" />
-                <ItemsPresenter Items="{Binding Cells}" ItemTemplate="{StaticResource FieldValueTemplateSelector}" ItemsPanel="{StaticResource HorizontalStackPanelTemplate}">
-                </ItemsPresenter>
+        <DataTemplate x:Key="RowTemplate" x:DataType="viewModels:DatabaseRowViewModel">
+            <DockPanel Classes="alternating" Height="24">
+                <TextBlock ToolTip.Tip="{CompiledBinding Help, Mode=OneTime}" Text="{CompiledBinding Name, Mode=OneTime}" Width="180" VerticalAlignment="Center" Padding="10,0,10,0" />
+                <ItemsControl ItemsSource="{CompiledBinding Cells}" ItemTemplate="{StaticResource FieldValueTemplateSelector}" ItemsPanel="{StaticResource HorizontalStackPanelTemplate}">
+                </ItemsControl>
             </DockPanel>
         </DataTemplate>
     </UserControl.Resources>
@@ -85,64 +96,74 @@
         <Style Selector="StackPanel">
             <Setter Property="(KeyboardNavigation.TabNavigation)" Value="Continue" />
         </Style>
-        <Style Selector=":is(controls|FastCellViewBase)">
-            <Setter Property="IsActive" Value="{Binding IsVisible}" />
-            <Setter Property="IsModified" Value="{Binding IsModified}" />
-            <Setter Property="IsReadOnly" Value="{Binding Parent.IsReadOnly, Mode=OneTime}" />
+        <Style Selector=":is(controls|FastCellViewBase)" x:DataType="viewModels:DatabaseCellViewModel">
+            <Setter Property="IsActive" Value="{CompiledBinding IsVisible}" />
+            <Setter Property="IsModified" Value="{CompiledBinding IsModified}" />
+            <Setter Property="IsReadOnly" Value="{CompiledBinding Parent.IsReadOnly, Mode=OneTime}" />
             <Setter Property="SetNullCommand" Value="{Binding ElementName=rootWindow, Path=DataContext.SetNullCommand, Mode=OneTime}" />
             <Setter Property="RevertCommand" Value="{Binding ElementName=rootWindow, Path=DataContext.RevertCommand, Mode=OneTime}" />
             <Setter Property="RemoveTemplateCommand" Value="{Binding ElementName=rootWindow, Path=DataContext.RemoveTemplateCommand, Mode=OneTime}" />
-            <Setter Property="CanBeNull" Value="{Binding CanBeSetToNull, Mode=OneTime}" />
+            <Setter Property="CanBeNull" Value="{CompiledBinding CanBeSetToNull, Mode=OneTime}" />
         </Style>
         <styles:StyleIncludeColorAware DarkSource="avares://WDE.DatabaseEditors.Avalonia/Views/ColorsDark.axaml"
                                        LightSource="avares://WDE.DatabaseEditors.Avalonia/Views/ColorsLight.axaml"/>
         <StyleInclude Source="avares://WDE.DatabaseEditors.Avalonia/Controls/FastCellView.axaml" />
         <StyleInclude Source="avares://WDE.DatabaseEditors.Avalonia/Controls/FastBoolCellView.axaml" />
-        <Style Selector="DockPanel.alternating">
+        <Style Selector="ContentPresenter DockPanel.alternating">
             <Setter Property="Background" Value="{DynamicResource TreeViewItem.Content.Background.NormalAlternate}" />
         </Style>
-        <Style Selector="DockPanel.alternating.odd">
+        <Style Selector="ContentPresenter:nth-child(2n) DockPanel.alternating">
             <Setter Property="Background" Value="{DynamicResource TreeViewItem.Content.Background.Normal}" />
         </Style>
     </UserControl.Styles>
     <Panel>
-        <DockPanel LastChildFill="True" HorizontalAlignment="Stretch">
-            <DockPanel Margin="10" VerticalAlignment="Center" DockPanel.Dock="Top">
-                <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right" Orientation="Horizontal">
-                    <TextBlock VerticalAlignment="Center" Padding="0,0,15,0">Search: </TextBlock>
-                    <TextBox Name="SearchTextBox" Width="300" HorizontalAlignment="Right" Text="{Binding SearchText, Mode=TwoWay}" />
-                </StackPanel>
-            </DockPanel>
-            <ScrollViewer>
-                <ItemsPresenter Focusable="False" Items="{Binding FilteredRows, Mode=OneTime}" Margin="0, 0, 0, 20">
-                    <ItemsPresenter.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel Orientation="Vertical" Margin="0, 10, 0, 0">
-                                <Border Height="20" Background="{DynamicResource TreeViewItem.Header.Background.Special}">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Padding="10,0,0,0" 
-                                                   Text="{Binding GroupName, Mode=OneTime}" 
-                                                   Foreground="{DynamicResource TreeViewItem.Header.Foreground.Special}" 
-                                                   Width="150"
-                                                   VerticalAlignment="Center"/>
-                                        <ItemsControl ItemTemplate="{StaticResource RowHeaderTemplate}" Items="{Binding DataContext.Header, ElementName=rootWindow, Mode=OneTime}" ItemsPanel="{StaticResource HorizontalStackPanelTemplate}">
-                                        </ItemsControl>
-                                    </StackPanel>
-                                </Border>
-                                <controls1:AlternatingItemsControl ItemTemplate="{StaticResource RowTemplate}" Focusable="False" Items="{Binding ., Mode=OneTime}">
-                                </controls1:AlternatingItemsControl>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ItemsPresenter.ItemTemplate>
-                </ItemsPresenter>
-            </ScrollViewer>
-        </DockPanel>
+        <TabControl Padding="0" ItemsSource="{CompiledBinding FilteredRows, Mode=OneTime}" SelectedItem="{CompiledBinding SelectedGroup}">
+            <TabControl.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{CompiledBinding GroupName}" />
+                </DataTemplate>
+            </TabControl.ItemTemplate>
+            <TabControl.ContentTemplate>
+                <DataTemplate x:DataType="viewModels:DatabaseRowsGroupViewModel">
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto">
+                        <StackPanel Orientation="Vertical" Margin="0, 10, 0, 0">
+                            <Border Height="20" Background="{DynamicResource TreeViewItem.Header.Background.Special}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Padding="10,0,0,0" 
+                                               Text="{CompiledBinding GroupName}" 
+                                               Foreground="{DynamicResource TreeViewItem.Header.Foreground.Special}" 
+                                               Width="180"
+                                               VerticalAlignment="Center"/>
+                                    <ItemsControl ItemTemplate="{StaticResource RowHeaderTemplate}" ItemsSource="{Binding DataContext.Header, ElementName=rootWindow}" ItemsPanel="{StaticResource HorizontalStackPanelTemplate}">
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                            <ItemsControl ItemTemplate="{StaticResource RowTemplate}" Focusable="False" ItemsSource="{CompiledBinding .}">
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                </DataTemplate>
+            </TabControl.ContentTemplate>
+        </TabControl>
         
-        <controls2:TeachingTip IsOpened="{Binding YouCanRevertTipOpened}" 
+        <!-- <ScrollViewer> -->
+        <!--      -->
+        <!--     ~1~ <ItemsControl Focusable="False" ItemsSource="{CompiledBinding FilteredRows, Mode=OneTime}" Margin="0, 0, 0, 20"> @1@ -->
+        <!--     ~1~     <ItemsControl.ItemTemplate> @1@ -->
+        <!--     ~1~          @1@ -->
+        <!--     ~1~     </ItemsControl.ItemTemplate> @1@ -->
+        <!--     ~1~ </ItemsControl> @1@ -->
+        <!-- </ScrollViewer> -->
+        
+        <controls2:TeachingTip IsOpened="{CompiledBinding YouCanRevertTipOpened}" 
                                VerticalAlignment="Bottom" Margin="20" 
                                Header="The editor remembers previous values!">
             In the template editing, the editor remembers previous field value (even between application restarts).
 As long as you do not remove this item from solution, you can revert to previous value with right click menu.   
             </controls2:TeachingTip>
+        
+        <Border Background="{DynamicResource ContentBackground}" Opacity="0.8" IsVisible="{CompiledBinding IsLoading}">
+            <TextBlock VerticalAlignment="Center" TextAlignment="Center" HorizontalAlignment="Center" FontSize="16">Loading table...</TextBlock>
+        </Border>
     </Panel>
 </UserControl>

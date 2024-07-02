@@ -6,21 +6,27 @@ namespace TheEngine.Input
 {
     internal class Keyboard : IKeyboard
     {
-        private volatile bool[] downKeys = new bool[255];
-        private Key[] justPressedKeys = new Key[20];
-        private int justPressedKeysIndex = 0;
+        internal volatile bool[] downKeys = new bool[255];
+        internal Key[] justPressedKeys = new Key[20];
+        internal Key[] justReleasedKeys = new Key[20];
+        internal char[] justTextInput = new char[20];
+        internal int justPressedKeysIndex = 0;
+        internal int justReleasedKeysIndex = 0;
+        internal int justTextInputIndex = 0;
 
         internal void PostUpdate()
         {
             justPressedKeysIndex = 0;
+            justReleasedKeysIndex = 0;
+            justTextInputIndex = 0;
         }
         
         internal void KeyDown(Key key)
         {
             if (key >= 0 && (int)key <= 255)
             {
-                if (downKeys[(int)key])
-                    return;
+                //if (downKeys[(int)key])
+                //    return;
                 downKeys[(int)key] = true;
             }
             
@@ -31,7 +37,14 @@ namespace TheEngine.Input
         internal void KeyUp(Key key)
         {
             if (key >= 0 && (int)key <= 255)
+            {
+                //if (!downKeys[(int)key])
+                //    return;
                 downKeys[(int)key] = false;
+            }
+            
+            if (justReleasedKeysIndex < justReleasedKeys.Length)
+                justReleasedKeys[justReleasedKeysIndex++] = key;
         }
         
         public bool IsDown(Key keys)
@@ -47,6 +60,14 @@ namespace TheEngine.Input
             return false;
         }
         
+        public bool JustReleased(Key key)
+        {
+            for (int i = 0; i < justReleasedKeysIndex; ++i)
+                if (justReleasedKeys[i] == key)
+                    return true;
+            return false;
+        }
+        
         public Vector3 GetAxis(Vector3 axis, Key positive, Key negative)
         {
             return axis * (IsDown(positive) ? 1 : 0) + axis * (IsDown(negative) ? -1 : 0);
@@ -56,6 +77,13 @@ namespace TheEngine.Input
         {
             for (int i = 0; i < downKeys.Length; ++i)
                 downKeys[i] = false;
+        }
+
+        public void OnTextInput(char c)
+        {
+            if (justTextInputIndex >= justTextInput.Length)
+                Array.Resize(ref justTextInput, justTextInput.Length * 2 + 1);
+            justTextInput[justTextInputIndex++] = c;
         }
     }
 }

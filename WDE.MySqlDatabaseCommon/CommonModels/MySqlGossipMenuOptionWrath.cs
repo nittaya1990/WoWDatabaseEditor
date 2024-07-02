@@ -30,11 +30,13 @@ namespace WDE.MySqlDatabaseCommon.CommonModels
         public uint NpcFlag { get; set; }
         
         [Column(Name = "ActionMenuID")]
-        public uint ActionMenuId { get; set; }
+        public int ActionMenuId { get; set; }
         
         [Column(Name = "ActionPoiID")]
         public uint ActionPoiId { get; set; }
-        
+
+        public uint ActionScriptId => 0;
+
         [Column(Name = "BoxCoded")]
         public uint BoxCoded { get; set; }
         
@@ -48,90 +50,43 @@ namespace WDE.MySqlDatabaseCommon.CommonModels
         public int BoxBroadcastTextId { get; set; }
         
         [Column(Name = "VerifiedBuild")]
-        public short VerifiedBuild { get; set; }
+        public int VerifiedBuild { get; set; }
+        
+        public bool HasOptionType => true;
     }
     
     [Table(Name = "gossip_menu_option")]
-    public class MySqlGossipMenuOptionCata : IGossipMenuOption
+    public class MySqlGossipMenuOptionMaster : IGossipMenuOption
     {
         [PrimaryKey]
-        [Column(Name = "MenuId")]
+        [Column(Name = "MenuID")]
         public uint MenuId { get; set; }
         
         [PrimaryKey]
-        [Column(Name = "OptionIndex")]
+        [Column(Name = "OptionID")]
         public uint OptionIndex { get; set; }
         
-        [Column(Name = "OptionIcon")]
+        [Column(Name = "OptionNpc")]
         public GossipOptionIcon Icon { get; set; }
         
         [Column(Name = "OptionText")]
         public string? Text { get; set; }
         
-        [Column(Name = "OptionBroadcastTextId")]
+        [Column(Name = "OptionBroadcastTextID")]
         public int BroadcastTextId { get; set; }
-        
-        [Column(Name = "OptionType")]
-        public GossipOption OptionType { get; set; }
-        
-        [Column(Name = "OptionNpcFlag")]
+
+        public GossipOption OptionType => GossipOption.None;
+
         public uint NpcFlag { get; set; }
-
-        public uint ActionMenuId => Action?.ActionMenuId ?? 0;
-        public uint ActionPoiId => Action?.ActionPoiId ?? 0;
-        public uint BoxCoded => Box?.BoxCoded ?? 0;
-        public uint BoxMoney => Box?.BoxMoney ?? 0;
-        public string? BoxText => Box?.BoxText;
-        public int BoxBroadcastTextId => Box?.BoxBroadcastTextId ?? 0;
-
-        [Column(Name = "VerifiedBuild")]
-        public short VerifiedBuild { get; set; }
-
-        public MySqlGossipMenuOptionAction? Action;
-        public MySqlGossipMenuOptionBox? Box;
-
-        public MySqlGossipMenuOptionCata SetAction(MySqlGossipMenuOptionAction action)
-        {
-            Action = action;
-            return this;
-        }
         
-        public MySqlGossipMenuOptionCata SetBox(MySqlGossipMenuOptionBox box)
-        {
-            Box = box;
-            return this;
-        }
-    }
-
-    [Table(Name = "gossip_menu_option_action")]
-    public class MySqlGossipMenuOptionAction
-    {
-        [PrimaryKey]
-        [Column(Name = "MenuID")]
-        public uint MenuId { get; set; }
+        [Column(Name = "ActionMenuID")]
+        public int ActionMenuId { get; set; }
         
-        [PrimaryKey]
-        [Column(Name = "OptionIndex")]
-        public uint OptionIndex { get; set; }
-        
-        [Column(Name = "ActionMenuId")]
-        public uint ActionMenuId { get; set; }
-        
-        [Column(Name = "ActionPoiId")]
+        [Column(Name = "ActionPoiID")]
         public uint ActionPoiId { get; set; }
-    }
-    
-    [Table(Name = "gossip_menu_option_box")]
-    public class MySqlGossipMenuOptionBox
-    {
-        [PrimaryKey]
-        [Column(Name = "MenuID")]
-        public uint MenuId { get; set; }
-        
-        [PrimaryKey]
-        [Column(Name = "OptionIndex")]
-        public uint OptionIndex { get; set; }
-     
+
+        public uint ActionScriptId => 0;
+
         [Column(Name = "BoxCoded")]
         public uint BoxCoded { get; set; }
         
@@ -142,6 +97,11 @@ namespace WDE.MySqlDatabaseCommon.CommonModels
         public string? BoxText { get; set; }
         
         [Column(Name = "BoxBroadcastTextID")]
-        public int BoxBroadcastTextId { get; set; }   
+        public int BoxBroadcastTextId { get; set; }
+        
+        [Column(Name = "VerifiedBuild")]
+        public int VerifiedBuild { get; set; }
+        
+        public bool HasOptionType => false;
     }
 }

@@ -1,5 +1,7 @@
+using ImGuiNET;
 using System.Collections;
 using TheEngine.Interfaces;
+using TheEngine.Utils.ImGuiHelper;
 using TheMaths;
 
 namespace WDE.MapRenderer.Managers;
@@ -33,20 +35,33 @@ public class LoadingManager : IDisposable
     private readonly IGameContext gameContext;
     private readonly IUIManager uiManager;
     private readonly ChunkManager chunkManager;
+    private readonly GlobalWorldMapObjectManager globalWorldMapObjectManager;
+    private readonly LowDetailHeightMapManager lowDetailHeightMapManager;
+    private readonly ZoneAreaManager zoneAreaManager;
     private readonly WorldManager worldManager;
     private int? currentLoadedMap;
     private LoadingToken? loadingToken;
+    private SimpleBox loadingNotificationBox;
     
     public bool EssentialLoadingInProgress { get; private set; }
     
     public LoadingManager(IGameContext gameContext,
         IUIManager uiManager,
-        ChunkManager chunkManager, WorldManager worldManager)
+        ChunkManager chunkManager, 
+        GlobalWorldMapObjectManager globalWorldMapObjectManager,
+        LowDetailHeightMapManager lowDetailHeightMapManager,
+        ZoneAreaManager zoneAreaManager,
+        WorldManager worldManager)
     {
         this.gameContext = gameContext;
         this.uiManager = uiManager;
         this.chunkManager = chunkManager;
+        this.globalWorldMapObjectManager = globalWorldMapObjectManager;
+        this.lowDetailHeightMapManager = lowDetailHeightMapManager;
+        this.zoneAreaManager = zoneAreaManager;
         this.worldManager = worldManager;
+
+        this.loadingNotificationBox = new SimpleBox(BoxPlacement.BottomCenter);
     }
 
     public void Update(float delta)
@@ -70,12 +85,22 @@ public class LoadingManager : IDisposable
                 yield return null; // wait for previous loading to finish
         }
         
+        yield return globalWorldMapObjectManager.Unload();
+        
         yield return chunkManager.UnloadAllChunks();
 
-        yield return worldManager.LoadMap(newToken.CancellationToken);
+        lowDetailHeightMapManager.Unload();
         
+        yield return zoneAreaManager.Load();
+        
+        yield return worldManager.LoadMap(newToken.CancellationToken);
+
         if (loadingToken == newToken)
             EssentialLoadingInProgress = false;
+
+        lowDetailHeightMapManager.Load();
+        
+        yield return globalWorldMapObjectManager.Load();
         
         yield return worldManager.LoadOptionals(newToken.CancellationToken);
 
@@ -93,12 +118,8 @@ public class LoadingManager : IDisposable
     {
         if (loadingToken != null)
         {
-            using var ui = uiManager.BeginImmediateDrawRel(0.5f, 1f, 0.5f, 1f);
-            ui.BeginVerticalBox(new Vector4(0, 0, 0, 0.5f), 2);
-            if (EssentialLoadingInProgress)
-                ui.Text( "calibri", "Loading essential things", 14, Vector4.One);
-            else
-                ui.Text( "calibri", "Loading less important things", 14, Vector4.One);
+            string message = EssentialLoadingInProgress ? "Loading essential things" : "Loading less important things";
+            loadingNotificationBox.Draw(message);
         }
     }
 }

@@ -1,16 +1,14 @@
-using System;
-using System.Collections.Generic;
 using OpenGLBindings;
 
 namespace TheAvaloniaOpenGL
 {
     public class DebugDevice : IDevice
     {
-        private RealDevice device;
+        private IDevice device;
 
         public List<string> commands = new();
 
-        public DebugDevice(RealDevice device)
+        public DebugDevice(IDevice device)
         {
             this.device = device;
         }
@@ -35,11 +33,14 @@ namespace TheAvaloniaOpenGL
             Report($"BindVertexArray({array})");
             device.BindVertexArray(array);
         }
-        public unsafe void GetIntegerv(GetPName n, int* rv)
+
+        public int GetInteger(GetPName n)
         {
-            device.GetIntegerv(n, rv);
-            Report($"GetIntegerv({n}) = {*rv}");
+            var i = device.GetInteger(n);
+            Report($"GetInteger({n}) = {i}");
+            return i;
         }
+
         public void GenVertexArrays(int n, int[] rv)
         {
             Report($"GenVertexArrays({n}, {string.Join(", ", rv)}");
@@ -195,6 +196,13 @@ namespace TheAvaloniaOpenGL
             Report($"Viewport({x}, {y}, {width}, {height})");
             device.Viewport(x, y, width, height);
         }
+
+        public void BlitFramebuffer(int srcX0, int srcY0, int srcX1, int srcY1, int dstX0, int dstY0, int dstX1, int dstY1, ClearBufferMask mask, BlitFramebufferFilter filter)
+        {
+            Report($"BlitFramebuffer({srcX0}, {srcY0}, {srcX1}, {srcY1}, {dstX0}, {dstY0}, {dstX1}, {dstY1}, {mask}, {filter})");
+            device.BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
+        }
+
         public void TexImage3D(TextureTarget target, int level, InternalFormat internalFormat, int width, int height, int depth, int border, PixelFormat format, PixelType type, IntPtr data)
         {
             Report($"TexImage3D({target}, {level}, {internalFormat}, {width}, {height}, {depth}, {border}, {format}, {type}, {data})");
@@ -248,17 +256,43 @@ namespace TheAvaloniaOpenGL
             Report($"UseProgram({program})");
             device.UseProgram(program);
         }
+
+        public void ReadBuffer(ReadBufferMode buffer)
+        {
+            Report($"ReadBuffer({buffer})");
+            device.ReadBuffer(buffer);
+        }
+
+        public void ReadPixels<T>(int x, int y, int width, int height, PixelFormat format, PixelType type, Span<T> data) where T : unmanaged
+        {
+            Report($"ReadPixels({x}, {y}, {width}, {height}, {format}, {type}, span of {typeof(T)} of {data.Length} elements)");
+            device.ReadPixels(x, y, width, height, format, type, data);
+        }
+
+        public void DrawBuffers(ReadOnlySpan<DrawBuffersEnum> buffers)
+        {
+            var buf = string.Join(", ", buffers.ToArray());
+            Report($"DrawBuffers({buffers.Length}, {buf})");
+            device.DrawBuffers(buffers);
+        }
+
         public void DrawArrays(PrimitiveType mode, int first, IntPtr count)
         {
             Report($"DrawArrays({mode}, {first}, {count})");
             device.DrawArrays(mode, first, count);
         }
-        public void DrawElements(PrimitiveType mode, int count, DrawElementsType type, IntPtr indices)
+        public void DrawElements(PrimitiveType mode, int count, DrawElementsType type, IntPtr startIndexLocation)
         {
-            Report($"DrawElements({mode}, {count}, {type}, {indices})");
-            device.DrawElements(mode, count, type, indices);
+            Report($"DrawElements({mode}, {count}, {type}, {startIndexLocation})");
+            device.DrawElements(mode, count, type, startIndexLocation);
         }
-        
+
+        public void DrawElementsBaseVertex(PrimitiveType mode, int count, DrawElementsType type, IntPtr startIndexLocation, int startVertexLocationBytes)
+        {
+            Report($"DrawElementsBaseVertex({mode}, {count}, {type}, {startIndexLocation}, {startVertexLocationBytes})");
+            device.DrawElementsBaseVertex(mode, count, type, startIndexLocation, startVertexLocationBytes);
+        }
+
         public int GetUniformLocation(int program, string name)
         {
             var loc = device.GetUniformLocation(program, name);
@@ -301,11 +335,31 @@ namespace TheAvaloniaOpenGL
             Report($"GetProgramInfoLog");
             return device.GetProgramInfoLog(program, maxLength);
         }
+
+        public void BlendEquation(BlendEquationMode mode)
+        {
+            Report($"BlendEquation({mode})");
+            device.BlendEquation(mode);
+        }
+
+        public void BlendFuncSeparate(BlendingFactorSrc srcRGB, BlendingFactorDest dstRGB, BlendingFactorSrc srcAlpha, BlendingFactorDest dstAlpha)
+        {
+            Report($"BlendFuncSeparate({srcRGB}, {dstRGB}, {srcAlpha}, {dstAlpha})");
+            device.BlendFuncSeparate(srcRGB, dstRGB, srcAlpha, dstAlpha);
+        }
+
         public int CreateProgram()
         {
             Report($"CreateProgram");
             return device.CreateProgram();
         }
+        
+        public void DeleteProgram(int program)
+        {
+            Report($"DeleteProgram({program})");
+            device.DeleteProgram(program);
+        }
+        
         public void AttachShader(int program, int shader)
         {
             Report($"AttachShader");
@@ -437,13 +491,40 @@ namespace TheAvaloniaOpenGL
         public void DepthMask(bool @on)
         {
             Report($"DepthMask({@on})");
-            device.DepthMask(@on ? 1 : 0);
+            device.DepthMask(@on);
         }
 
         public void DepthFunction(DepthFunction func)
         {
             Report($"DepthFunc({func})");
-            device.DepthFunc(func);
+            device.DepthFunction(func);
+        }
+
+        public void Scissor(int x, int y, int width, int height)
+        {
+            Report($"Scissor({x}, {y}, {width}, {height})");
+            device.Scissor(x, y, width, height);
+        }
+
+        public unsafe void UniformMatrix4f(int location, ref Matrix4x4 m, bool transpose)
+        {
+            Report($"Matrix4f({location}, {transpose}, {m})");
+            device.UniformMatrix4f(location, ref m, transpose);
+        }
+        
+        public void Flush()
+        {
+            device.Flush();
+        }
+
+        public void Finish()
+        {
+            device.Finish();
+        }
+
+        public void Debug(string msg)
+        {
+            commands.Add(msg);
         }
     }
 }

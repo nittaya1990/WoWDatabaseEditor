@@ -4,13 +4,19 @@
         xmlns:themes="clr-namespace:WDE.Common.Avalonia.Themes"
         xmlns:converters="clr-namespace:WDE.Common.Avalonia.Converters"
         xmlns:components="clr-namespace:WDE.Common.Avalonia.Components"
-        xmlns:utils="clr-namespace:WDE.Common.Avalonia.Utils">
+        xmlns:utils="clr-namespace:WDE.Common.Avalonia.Utils"
+        xmlns:sys="clr-namespace:System;assembly=System.Runtime">
     <Styles.Resources>
         <converters:LongToBoolConverter x:Key="LongToBoolConverter" />
         <converters:StripTagConverter x:Key="StripTagConverter" />
         <converters:NullConverter Inverted="True" x:Key="NullConverter" />
     </Styles.Resources>
     <StyleInclude Source="avares://WDE.Common.Avalonia/Controls/SettingsHeader.axaml"></StyleInclude>
+    <StyleInclude Source="avares://WDE.Common.Avalonia/Controls/VirtualizedTreeViewItem.axaml"></StyleInclude>
+    <StyleInclude Source="avares://WDE.Common.Avalonia/Controls/EditorHeader.axaml"></StyleInclude>
+    <StyleInclude Source="avares://WDE.Common.Avalonia/Controls/Parameters/Parameters.axaml" />
+    <StyleInclude Source="avares://WDE.Common.Avalonia/Controls/CodeCompletionTextEditor/CodeCompletionTextEditor.axaml" />
+    <StyleInclude Source="avares://WDE.Common.Avalonia/Controls/CoreVersionPicker.axaml" />
     <Style Selector="controls|ParameterValueHolderView">
         <Setter Property="Focusable" Value="False"/>
         <Setter Property="Template">
@@ -26,10 +32,11 @@
                                                 CommandParameter="{Binding }"
                                                 Margin="3,0,0,0"
                                                 Focusable="False"
-                                                IsVisible="{Binding HasItems}" />
+                                                IsVisible="{Binding HasItems, FallbackValue=False}" />
                                         <controls:ParameterTextBox VerticalContentAlignment="Center"
                                                                    Focusable="True"
                                                                    Name="TextBox"
+                                                                   Tag="{Binding Tag, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=controls:ParameterValueHolderView}}"
                                                                    SpecialCopying="{Binding SpecialCopying, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=controls:ParameterValueHolderView}}"
                                                                    Text="{Binding Value, Mode=TwoWay}"
                                                                    FontFamily="Consolas,Menlo,Courier,Courier New"
@@ -53,7 +60,7 @@
                                             </controls:ParameterTextBox.InnerLeftContent>
                                             <controls:ParameterTextBox.InnerRightContent>
                                                 <Button 
-                                                    IsVisible="{Binding SpecialCommand, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=controls:ParameterValueHolderView}, Converter={StaticResource NullConverter}}"
+                                                    IsVisible="{Binding SpecialCommand, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=controls:ParameterValueHolderView}, Converter={StaticResource NullConverter}, FallbackValue=False}"
                                                     Background="Transparent"
                                                     BorderBrush="Transparent"
                                                     Command="{Binding PickSpecial, RelativeSource={RelativeSource Mode=FindAncestor, AncestorType=controls:ParameterValueHolderView}}">
@@ -94,5 +101,151 @@
     
     <Style Selector="ImageToggleButton:pointerover /template/ WdeImage">
         <Setter Property="Opacity" Value="1" />
+    </Style>
+    
+    <Style Selector="EditableTextBlock">
+        <Setter Property="Cursor" Value="IBeam" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="VerticalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Panel Background="{TemplateBinding Background}" Name="PART_Panel">
+                    <TextBlock Name="PART_TextBlock" Padding="{TemplateBinding Padding}" HorizontalAlignment="Stretch" VerticalAlignment="Center" TextAlignment="Left" Text="{TemplateBinding Text}"></TextBlock>
+                </Panel>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    
+    <Style Selector="EditableItemsTextBlock">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="VerticalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <DockPanel Background="{TemplateBinding Background}" Name="PART_Panel" KeyboardNavigation.TabNavigation="Local">
+                    <Button DockPanel.Dock="Right" Background="Transparent" BorderThickness="0" Name="PART_OpenListButton">
+                        <Viewbox Margin="0,0,5,0"
+                                 Height="12"
+                                 Width="12"
+                                 DockPanel.Dock="Right"
+                                 VerticalAlignment="Center">
+                            <Path VerticalAlignment="Center" Fill="{DynamicResource ComboBoxDropDownGlyphForeground}" Data="M1939 486L2029 576L1024 1581L19 576L109 486L1024 1401L1939 486Z" Stretch="Uniform" />
+                        </Viewbox>
+                    </Button>
+                    <Border Background="Transparent" Cursor="IBeam" Padding="{TemplateBinding Padding}">
+                        <TextBlock Name="PART_TextBlock" HorizontalAlignment="Stretch" VerticalAlignment="Center" TextAlignment="Left" Text="{TemplateBinding SelectedItem, Converter={x:Static ObjectToStringConverter.Instance}}" />
+                    </Border>
+                </DockPanel>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    
+    <Style Selector="controls|OkCancelButtons">
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <StackPanel Spacing="15" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button IsDefault="True" Classes="primary" MinWidth="90" MinHeight="30" Command="{TemplateBinding AcceptCommand}" Content="{TemplateBinding AcceptText}"></Button>
+                    <Button IsCancel="True" IsVisible="{TemplateBinding DisplayCancelButton}" MinWidth="90" MinHeight="30" Command="{TemplateBinding CancelCommand}">Cancel</Button>
+                </StackPanel>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    
+    <Style Selector="controls|NullableTextBox">
+        <Setter Property="Template">
+            <ControlTemplate>
+                <DockPanel>
+                    <CheckBox ToolTip.Tip="Is null?" IsChecked="{TemplateBinding IsNotNull, Mode=TwoWay}" DockPanel.Dock="Left" />
+                    <TextBox Watermark="{TemplateBinding Watermark}" Text="{TemplateBinding Text, Mode=TwoWay}" IsEnabled="{TemplateBinding IsNotNull}" />
+                </DockPanel>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    
+    <Style Selector="HexViewControl">
+        <Setter Property="Foreground" Value="{DynamicResource TextControlForeground}" />
+        <Setter Property="Background" Value="{DynamicResource TextControlBackground}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource TextControlBorderBrush}" />
+        <Setter Property="SelectionBrush" Value="{DynamicResource TextControlSelectionHighlightColor}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{DynamicResource ControlCornerRadius}" />
+        <Setter Property="FontSize" Value="{DynamicResource ControlContentThemeFontSize}" />
+        <Setter Property="MinHeight" Value="{DynamicResource TextControlThemeMinHeight}" />
+        <Setter Property="MinWidth" Value="{DynamicResource TextControlThemeMinWidth}" />
+        <Setter Property="Padding" Value="{DynamicResource TextControlThemePadding}" />
+        <Setter Property="FocusAdorner" Value="{x:Null}" />
+        <!-- <Setter Property="ScrollViewer.IsScrollChainingEnabled" Value="True" /> -->
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border
+                    Name="PART_BorderElement"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{TemplateBinding CornerRadius}"
+                    MinWidth="{TemplateBinding MinWidth}"
+                    Padding="{TemplateBinding Padding}"
+                    MinHeight="{TemplateBinding MinHeight}">
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                        <HexViewPresenter
+                            Name="PART_ContentHost"
+                            Bytes="{TemplateBinding Bytes}"
+                            SelectionStart="{TemplateBinding SelectionStart, Mode=TwoWay}"
+                            SelectionEnd="{TemplateBinding SelectionEnd, Mode=TwoWay}"
+                            SelectionBrush="{TemplateBinding SelectionBrush}"
+                            CaretIndex="{TemplateBinding CaretIndex, Mode=TwoWay}"
+                            CaretBlinkInterval="{TemplateBinding CaretBlinkInterval}"
+                            CaretInAscii="{TemplateBinding CaretInAscii, Mode=TwoWay}"
+                            IsReadOnly="{TemplateBinding IsReadOnly}"
+                            TextBlock.Foreground="{TemplateBinding Foreground}"
+                            TextBlock.FontSize="{TemplateBinding FontSize}"
+                            TextBlock.FontFamily="{TemplateBinding FontFamily}"
+                        />
+                    </ScrollViewer>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    
+    <Style Selector="HexViewControl:disabled">
+        <Setter Property="Foreground" Value="{DynamicResource TextControlForegroundDisabled}" />
+    </Style>
+    
+    <Style Selector="HexViewControl /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="{DynamicResource TextControlBackgroundDisabled}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource TextControlBorderBrushDisabled}" />
+    </Style>
+
+    <Style Selector="WdeIconPicker">
+        <Setter Property="Template">
+            <ControlTemplate>
+                <DockPanel>
+                    <CheckBox IsChecked="{TemplateBinding IsNonNullIcon, Mode=TwoWay}" />
+                    <ButtonImage DockPanel.Dock="Right"
+                                 IsEnabled="{TemplateBinding IsNonNullIcon}"
+                                 Image="Icons/icon_web_mono.png"
+                                 Width="32"
+                                 Height="32"
+                                 Padding="5"
+                                 x:Name="DownloadMoreIconsButton"
+                                 ToolTip.Tip="Download new icons" />
+                    <CompletionComboBox SelectedItem="{TemplateBinding IconPath, Mode=TwoWay}"
+                                        IsEnabled="{TemplateBinding IsNonNullIcon}"
+                                        Items="{x:Static DefinitionEditorStatic.Icons}"
+                                        x:Name="ComboBox">
+                        <CompletionComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel x:DataType="sys:String">
+                                    <WdeImage ImageUri="{CompiledBinding  .}" Width="16" Height="16" Margin="0,0,5,0" />
+                                    <TextBlock Text="{CompiledBinding  .}" />
+                                </DockPanel>
+                            </DataTemplate>
+                        </CompletionComboBox.ItemTemplate>
+                    </CompletionComboBox>
+                </DockPanel>
+            </ControlTemplate>
+        </Setter>
     </Style>
 </Styles>

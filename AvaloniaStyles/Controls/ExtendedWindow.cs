@@ -5,15 +5,17 @@ using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using AvaloniaStyles.Utils;
 
 namespace AvaloniaStyles.Controls
 {
-    public class ExtendedWindow : Window, IStyleable
+    public class ExtendedWindow : Window
     {
         public static readonly StyledProperty<IImage> ManagedIconProperty =
             AvaloniaProperty.Register<ExtendedWindow, IImage>(nameof(ManagedIcon));
@@ -24,8 +26,8 @@ namespace AvaloniaStyles.Controls
         public static readonly StyledProperty<ToolBar> ToolBarProperty =
             AvaloniaProperty.Register<ExtendedWindow, ToolBar>(nameof(ToolBar));
 
-        public static readonly StyledProperty<IControl?> SideBarProperty =
-            AvaloniaProperty.Register<ExtendedWindow, IControl?>(nameof(SideBar));
+        public static readonly StyledProperty<Control?> SideBarProperty =
+            AvaloniaProperty.Register<ExtendedWindow, Control?>(nameof(SideBar));
         
         public static readonly StyledProperty<StatusBar> StatusBarProperty =
             AvaloniaProperty.Register<ExtendedWindow, StatusBar>(nameof(StatusBar));
@@ -33,8 +35,8 @@ namespace AvaloniaStyles.Controls
         public static readonly StyledProperty<TabStrip> TabStripProperty =
             AvaloniaProperty.Register<ExtendedWindow, TabStrip>(nameof(TabStrip));
         
-        public static readonly StyledProperty<IControl> OverlayProperty =
-            AvaloniaProperty.Register<ExtendedWindow, IControl>(nameof(Overlay));
+        public static readonly StyledProperty<Control> OverlayProperty =
+            AvaloniaProperty.Register<ExtendedWindow, Control>(nameof(Overlay));
         
         public static readonly StyledProperty<string> SubTitleProperty =
                 AvaloniaProperty.Register<ExtendedWindow, string>(nameof(SubTitle));
@@ -57,7 +59,7 @@ namespace AvaloniaStyles.Controls
             set => SetValue(ToolBarProperty, value);
         }
         
-        public IControl? SideBar
+        public Control? SideBar
         {
             get => GetValue(SideBarProperty);
             set => SetValue(SideBarProperty, value);
@@ -69,7 +71,7 @@ namespace AvaloniaStyles.Controls
             set => SetValue(StatusBarProperty, value);
         }
         
-        public IControl Overlay
+        public Control Overlay
         {
             get => GetValue(OverlayProperty);
             set => SetValue(OverlayProperty, value);
@@ -87,7 +89,7 @@ namespace AvaloniaStyles.Controls
             set => SetValue(TabStripProperty, value);
         }
         
-        Type IStyleable.StyleKey => typeof(ExtendedWindow);
+        protected override Type StyleKeyOverride => typeof(ExtendedWindow);
         
         static ExtendedWindow()
         {
@@ -116,6 +118,49 @@ namespace AvaloniaStyles.Controls
                 if (state.NewValue is ExtendedWindowChrome b)
                     window.UpdateChromeHints(b);
             });
+
+            BackgroundProperty.Changed.AddClassHandler<ExtendedWindow>((window, e) =>
+            {
+                window.BindBackgroundBrush(e.NewValue as SolidColorBrush);
+            });
+        }
+
+        protected override void OnLoaded(RoutedEventArgs e)
+        {
+            base.OnLoaded(e);
+            if (OperatingSystem.IsWindows())
+            {
+                PlatformImpl?.GetType()
+                    .GetMethods(BindingFlags.NonPublic | BindingFlags.Instance)
+                    .FirstOrDefault(x => x.Name == "ShowWindow")?
+                    .Invoke(this.PlatformImpl!, new object?[] { this.WindowState, false });
+            }
+        }
+
+        private IDisposable? backgroundBrushBinding;
+
+        private void UnbindBackgroundBrush()
+        {
+            backgroundBrushBinding?.Dispose();
+            backgroundBrushBinding = null;
+        }
+        
+        private void BindBackgroundBrush(SolidColorBrush? brush)
+        {
+            UnbindBackgroundBrush();
+
+            if (brush != null)
+            {
+                backgroundBrushBinding = brush.GetObservable(SolidColorBrush.ColorProperty)
+                    .Subscribe(_ => BackgroundBrushOnInvalidated(null, EventArgs.Empty));
+            }
+        }
+        
+        private void BackgroundBrushOnInvalidated(object? sender, EventArgs e)
+        {
+            if (Background is ISolidColorBrush brush)
+                if (TryGetPlatformHandle() is { } handle)
+                   Win32.SetTitleBarColor(handle.Handle, brush.Color);
         }
 
         private void UpdateChromeHints(ExtendedWindowChrome chrome)
@@ -140,7 +185,13 @@ namespace AvaloniaStyles.Controls
             if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
                 PseudoClasses.Add(":macos");
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                if (TryGetPlatformHandle() is { } handle)
+                    Win32.SetDarkMode(handle.Handle, SystemTheme.EffectiveThemeIsDark);
                 PseudoClasses.Add(":windows");
+                if (Environment.OSVersion.Version.Build >= 22000)
+                    PseudoClasses.Add(":win11");
+            }
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
                 PseudoClasses.Add(":linux");
             SystemTheme.CustomScalingUpdated += SystemThemeOnCustomScalingUpdated;
@@ -152,12 +203,14 @@ namespace AvaloniaStyles.Controls
             if (!SystemTheme.CustomScalingValue.HasValue)
             {
                 var primaryScreen = window.Screens.Primary ?? window.Screens.All.FirstOrDefault();
-                scaling = (primaryScreen?.PixelDensity ?? 1);
+                scaling = (primaryScreen?.Scaling ?? 1);
             }
             else
                 scaling = SystemTheme.CustomScalingValue.Value;
             
             var impl = window.PlatformImpl;
+            if (impl == null)
+                return;
             var f = impl.GetType().GetField("_scaling", BindingFlags.Instance | BindingFlags.NonPublic);
             if (f != null)
             {
@@ -167,7 +220,8 @@ namespace AvaloniaStyles.Controls
                     var oldWidth = window.Width * curVal;
                     var oldHeight = window.Height * curVal;
                     f.SetValue(impl, scaling);
-                    impl.ScalingChanged(scaling);
+                    Action<double>? scalingChanged = (Action<double>?)impl.GetType().GetProperty("ScalingChanged", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)?.GetValue(impl);
+                    scalingChanged?.Invoke(scaling);
                     DispatcherTimer.RunOnce(() =>
                     {
                         window.Width = oldWidth / scaling;
@@ -184,6 +238,7 @@ namespace AvaloniaStyles.Controls
 
         protected override void OnClosed(EventArgs e)
         {
+            UnbindBackgroundBrush();
             SystemTheme.CustomScalingUpdated -= SystemThemeOnCustomScalingUpdated;
             base.OnClosed(e);
         }
